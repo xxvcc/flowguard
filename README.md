@@ -80,7 +80,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
 | `flowguard rollback` | 回滚到最近一次配置备份 |
 | `flowguard test-notify` | 发送 Telegram 测试通知 |
-| `flowguard uninstall --keep-config=true` | 卸载服务但保留配置和状态 |
+| `flowguard uninstall` | 卸载服务并删除配置、状态和二进制 |
+| `flowguard uninstall --keep-config=true --keep-binary=true` | 卸载服务但保留配置、状态和二进制 |
 
 ## 非交互安装
 

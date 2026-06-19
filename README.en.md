@@ -80,7 +80,8 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
 | `flowguard rollback` | Restore latest config backup |
 | `flowguard test-notify` | Send a Telegram test notification |
-| `flowguard uninstall --keep-config=true` | Remove service while keeping config/state |
+| `flowguard uninstall` | Remove service, config, state, and binary |
+| `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
 
 ## Non-Interactive Install
 

@@ -188,8 +188,8 @@ func cmdModify(args []string) error {
 
 func cmdUninstall(args []string) error {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	keepConfig := fs.Bool("keep-config", true, "keep config and state files")
-	keepBinary := fs.Bool("keep-binary", true, "keep /usr/local/bin/flowguard")
+	keepConfig := fs.Bool("keep-config", false, "keep config and state files")
+	keepBinary := fs.Bool("keep-binary", false, "keep /usr/local/bin/flowguard")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func cmdUninstall(args []string) error {
 	if !*keepBinary {
 		_ = os.Remove("/usr/local/bin/flowguard")
 	}
-	fmt.Println("FlowGuard service removed.")
+	fmt.Println("FlowGuard uninstalled.")
 	return nil
 }
 
