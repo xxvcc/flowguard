@@ -38,20 +38,20 @@ Running FlowGuard does **not** require Go on the VPS. Go is only required if you
 Recommended one-line install from GitHub Releases:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cnlanny/flowguard/main/scripts/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | sudo sh
 ```
 
 If your repository or tag is different:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cnlanny/flowguard/main/scripts/install.sh | \
-  sudo env FLOWGUARD_REPO=cnlanny/flowguard FLOWGUARD_VERSION=latest sh
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
+  sudo env FLOWGUARD_REPO=xxvcc/flowguard FLOWGUARD_VERSION=latest sh
 ```
 
 For mirrors or self-hosted release files, override the download base URL:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cnlanny/flowguard/main/scripts/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
   sudo env FLOWGUARD_BASE_URL=https://example.com/flowguard/releases/latest sh
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="${FLOWGUARD_REPO:-cnlanny/flowguard}"
+REPO="${FLOWGUARD_REPO:-xxvcc/flowguard}"
 VERSION="${FLOWGUARD_VERSION:-latest}"
 INSTALL_DIR="${FLOWGUARD_INSTALL_DIR:-/usr/local/bin}"
 BASE_URL="${FLOWGUARD_BASE_URL:-}"
