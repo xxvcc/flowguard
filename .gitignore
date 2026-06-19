@@ -1,0 +1,6 @@
+/flowguard
+/dist/
+*.log
+dist/
+coverage.out
+*.test
