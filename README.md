@@ -82,6 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard test-notify` | 发送 Telegram 测试通知 |
 | `flowguard uninstall` | 卸载服务并删除配置、状态和二进制 |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | 卸载服务但保留配置、状态和二进制 |
+| `flowguard uninstall --remove-vnstat=true` | 卸载时同时移除配置网卡的 vnStat 数据 |
 
 ## 非交互安装
 
@@ -189,6 +190,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 - 如果公网/内网共用同一网卡，`vnStat` 无法区分，需要未来增加 nftables 统计模式。
 - `flowguard limit` 会把网卡 root qdisc 替换成 `tbf`，不要和其他 root `tc` 限速器共用。
 - `flowguard unlimit` 只会在当前 root qdisc 是 `tbf` 时删除，避免误删默认 `mq/fq_codel`。
+- `flowguard uninstall` 会先解除 FlowGuard 管理的 `tbf` 限速，再删除服务、配置、状态和二进制。
+- 默认不会删除 `vnStat` 数据库和系统依赖；如确认这些接口数据只给 FlowGuard 使用，可加 `--remove-vnstat=true`。
 
 ## License
 

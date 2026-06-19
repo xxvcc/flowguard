@@ -188,20 +188,41 @@ func cmdModify(args []string) error {
 
 func cmdUninstall(args []string) error {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	cfgPath := fs.String("config", config.DefaultConfigPath, "config path")
 	keepConfig := fs.Bool("keep-config", false, "keep config and state files")
 	keepBinary := fs.Bool("keep-binary", false, "keep /usr/local/bin/flowguard")
+	removeVnstat := fs.Bool("remove-vnstat", false, "remove configured interfaces from vnStat database")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	var cfg config.Config
+	var haveConfig bool
+	if loaded, err := config.Load(*cfgPath); err == nil {
+		cfg = loaded
+		haveConfig = true
 	}
 	_, _ = util.Run(30*time.Second, "systemctl", "disable", "--now", "flowguard")
 	_ = os.Remove("/etc/systemd/system/flowguard.service")
 	_, _ = util.Run(30*time.Second, "systemctl", "daemon-reload")
+	if haveConfig {
+		if err := removeLimits(cfg); err != nil {
+			return err
+		}
+		if *removeVnstat {
+			for _, iface := range cfg.Interfaces {
+				_, _ = util.Run(30*time.Second, "vnstat", "--remove", "-i", iface, "--force")
+			}
+		}
+	}
 	if !*keepConfig {
 		_ = os.RemoveAll("/etc/flowguard")
 		_ = os.RemoveAll("/var/lib/flowguard")
 	}
 	if !*keepBinary {
 		_ = os.Remove("/usr/local/bin/flowguard")
+	}
+	if haveConfig {
+		fmt.Println("FlowGuard limits removed for configured interfaces.")
 	}
 	fmt.Println("FlowGuard uninstalled.")
 	return nil

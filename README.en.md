@@ -82,6 +82,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard test-notify` | Send a Telegram test notification |
 | `flowguard uninstall` | Remove service, config, state, and binary |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
+| `flowguard uninstall --remove-vnstat=true` | Also remove configured interfaces from the vnStat database |
 
 ## Non-Interactive Install
 
@@ -189,6 +190,8 @@ Default config path: `/etc/flowguard/config.json`
 - If public and private traffic share one NIC, `vnStat` cannot distinguish them; a future nftables accounting mode would be needed.
 - `flowguard limit` replaces the root qdisc with `tbf`; do not combine it with another root `tc` shaper on the same interface.
 - `flowguard unlimit` only removes the root qdisc when it is currently `tbf`.
+- `flowguard uninstall` removes FlowGuard-managed `tbf` limits before deleting the service, config, state, and binary.
+- It does not remove the `vnStat` database or system packages by default; use `--remove-vnstat=true` only when those interface records are dedicated to FlowGuard.
 
 ## License
 
