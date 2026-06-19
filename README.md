@@ -5,108 +5,89 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/xxvcc/flowguard)](go.mod)
 
-> Lightweight VPS traffic allowance guard powered by `vnStat`, Linux `tc`, Telegram alerts, and a Bubble Tea TUI installer.
+**FlowGuard** is a lightweight VPS bandwidth allowance guard. It watches traffic with `vnStat`, applies outbound shaping with Linux `tc`, and guides setup with a Bubble Tea TUI.
 
-[中文文档](README.zh-CN.md)
+<p align="center">
+  <strong>Prevent surprise bandwidth overage on small VPS instances.</strong>
+</p>
 
-FlowGuard helps small VPS instances avoid unexpected bandwidth overage by monitoring recorded traffic, warning at thresholds, and applying outbound rate limits when needed.
+<p align="center">
+  <a href="README.zh-CN.md">中文文档</a> ·
+  <a href="https://github.com/xxvcc/flowguard/releases">Releases</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-## Features
+---
 
-- Persistent traffic accounting via `vnStat`
-- Billing modes:
-  - `total`: inbound + outbound
-  - `outbound`: outbound only
-- Billing period start day: `1-28`
-- Initial usage offset for mid-cycle installation
-- Multiple interfaces: `eth0,ens5` or `auto-public`
-- Threshold hysteresis to prevent limit flapping
-- First-limit dry run protection
-- Telegram notifications
-- Config backup and rollback
-- `doctor` diagnostics
-- JSON status output without leaking Telegram tokens
-- Hardened systemd service
-- Bubble Tea powered installer UI
-
-## Quick Start
-
-```bash
-go build -o flowguard ./cmd/flowguard
-sudo ./flowguard install
-```
-
-Running FlowGuard does **not** require Go on the VPS. Go is only required if you build from source on that machine. You can also build elsewhere and copy the binary to a fresh VPS.
-
-## Deploy to a Fresh VPS
-
-Recommended one-line install from GitHub Releases:
+## Install on a Fresh VPS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | sudo sh
 ```
 
-If your repository or tag is different:
+The installer downloads the latest GitHub Release, verifies `checksums.txt`, installs the `flowguard` binary, installs dependencies, and starts the setup wizard.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
-  sudo env FLOWGUARD_REPO=xxvcc/flowguard FLOWGUARD_VERSION=latest sh
-```
+> Running FlowGuard does **not** require Go on the VPS. Go is only needed when building from source.
 
-For mirrors or self-hosted release files, override the download base URL:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
-  sudo env FLOWGUARD_BASE_URL=https://example.com/flowguard/releases/latest sh
-```
-
-The install script:
-
-1. Detects Linux architecture: `amd64`, `arm64`, or `armv7`
-2. Downloads the matching release archive
-3. Downloads `checksums.txt`
-4. Verifies SHA256 before installing
-5. Installs `flowguard` to `/usr/local/bin`
-6. Starts `flowguard install`
-
-Expected release assets:
+## TUI Preview
 
 ```text
-flowguard_linux_amd64.tar.gz
-flowguard_linux_arm64.tar.gz
-flowguard_linux_armv7.tar.gz
-checksums.txt
-```
-
-Manual copy also works:
-
-```bash
-# Build on your local machine
-GOOS=linux GOARCH=amd64 go build -o flowguard ./cmd/flowguard
-
-# Copy to VPS
-scp flowguard root@your-vps:/root/flowguard
-
-# Run on VPS
-ssh root@your-vps
-chmod +x /root/flowguard
-sudo /root/flowguard install
-```
-
-The first interactive prompt chooses language. In a terminal, use `↑/↓` to move the filled radio dot and press Enter to confirm. In non-interactive input, it falls back to numbered choices.
-
-```text
-? Language / 语言
+? Language / 语言 (↑/↓, Enter)
   ● zh
   ○ en
+
+? 计费流量模式 (↑/↓, Enter)
+  ● total
+  ○ outbound
 ```
+
+Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY input automatically falls back to numbered prompts.
+
+## Why FlowGuard?
+
+| Problem | FlowGuard does |
+| --- | --- |
+| VPS traffic allowance is easy to exceed | Tracks usage with `vnStat` |
+| Providers count traffic differently | Supports `total` and `outbound` billing modes |
+| Sudden traffic spikes can become expensive | Warns, rate-limits, and supports first-limit dry run |
+| Manual traffic shaping is error-prone | Manages `tc` safely and avoids deleting unrelated qdiscs |
+| Fresh VPS setup should be simple | One-line installer and TUI wizard |
+
+## Features
+
+- Persistent traffic accounting via `vnStat`
+- Billing modes: `total` (`rx + tx`) or `outbound` (`tx` only)
+- Billing period start day: `1-28`
+- Mid-cycle initial usage offset: none / total / split
+- Multi-interface support: `eth0,ens5` or `auto-public`
+- Threshold hysteresis to prevent limit flapping
+- First-limit dry run protection
+- Telegram notifications
+- Config backup and rollback
+- `doctor` diagnostics
+- `status --json` without leaking Telegram tokens
+- Hardened systemd service
+- Bubble Tea powered installer UI
+
+## Common Commands
+
+| Command | Purpose |
+| --- | --- |
+| `flowguard status` | Show current traffic, decision, and `tc` state |
+| `flowguard status --json` | Script-friendly status output |
+| `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
+| `flowguard modify --allowance 1000GB` | Update config with automatic backup |
+| `flowguard rollback` | Restore latest config backup |
+| `flowguard test-notify` | Send a Telegram test notification |
+| `flowguard uninstall --keep-config=true` | Remove service while keeping config/state |
 
 ## Non-Interactive Install
 
 Provider counts inbound + outbound:
 
 ```bash
-sudo ./flowguard install --yes \
+sudo flowguard install --yes \
   --allowance 1000GB \
   --billing-mode total \
   --period-day 1 \
@@ -116,7 +97,7 @@ sudo ./flowguard install --yes \
 Provider counts outbound only:
 
 ```bash
-sudo ./flowguard install --yes \
+sudo flowguard install --yes \
   --allowance 1000GB \
   --billing-mode outbound \
   --period-day 1 \
@@ -127,27 +108,38 @@ sudo ./flowguard install --yes \
 Enable Telegram:
 
 ```bash
-sudo ./flowguard install --yes \
+sudo flowguard install --yes \
   --allowance 1000GB \
   --billing-mode total \
   --tg-token '123:abc' \
   --tg-chat-id '123456789'
 ```
 
-## Commands
+## Build from Source
 
 ```bash
-flowguard status
-flowguard status --json
-flowguard doctor
-flowguard modify --allowance 1000GB --billing-mode outbound
-flowguard rollback
-flowguard config-example
-flowguard limit --rate 1mbit
-flowguard unlimit
-flowguard test-notify
-flowguard check-once
-flowguard uninstall --keep-config=true
+git clone https://github.com/xxvcc/flowguard.git
+cd flowguard
+go build -o flowguard ./cmd/flowguard
+sudo ./flowguard install
+```
+
+## Release Assets
+
+Automatic releases provide:
+
+```text
+flowguard_linux_amd64.tar.gz
+flowguard_linux_arm64.tar.gz
+flowguard_linux_armv7.tar.gz
+checksums.txt
+```
+
+For mirrors or self-hosted release files:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
+  sudo env FLOWGUARD_BASE_URL=https://example.com/flowguard/releases/latest sh
 ```
 
 ## Configuration
@@ -188,11 +180,15 @@ Default config path: `/etc/flowguard/config.json`
 }
 ```
 
-## Notes
+## Notes and Limitations
 
-- `vnStat` may need 1-2 minutes after installation before it has usable data.
-- `period_day=1` uses `vnStat` monthly data. Other start days are calculated from `vnStat` daily data.
-- If private traffic is free and uses a separate private NIC, monitor only the public NIC.
-- If public and private traffic share one NIC, `vnStat` cannot distinguish them; this would require a future nftables accounting mode.
+- `vnStat` may need 1-2 minutes after installation before data appears.
+- `period_day=1` uses `vnStat` monthly data; other start days sum `vnStat` daily data.
+- If internal/private traffic is free on a separate NIC, monitor only the public NIC.
+- If public and private traffic share one NIC, `vnStat` cannot distinguish them; a future nftables accounting mode would be needed.
 - `flowguard limit` replaces the root qdisc with `tbf`; do not combine it with another root `tc` shaper on the same interface.
-- `flowguard unlimit` only removes root qdisc when it is currently `tbf`.
+- `flowguard unlimit` only removes the root qdisc when it is currently `tbf`.
+
+## License
+
+MIT
