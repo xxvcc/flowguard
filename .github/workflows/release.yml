@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist build
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          tar -C build -czf dist/flowguard_linux_amd64.tar.gz flowguard
+          rm -f build/flowguard
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          tar -C build -czf dist/flowguard_linux_arm64.tar.gz flowguard
+          rm -f build/flowguard
+          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          tar -C build -czf dist/flowguard_linux_armv7.tar.gz flowguard
+          (cd dist && sha256sum flowguard_*.tar.gz > checksums.txt)
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

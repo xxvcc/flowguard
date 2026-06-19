@@ -1,5 +1,10 @@
 # FlowGuard
 
+[![CI](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml/badge.svg)](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/xxvcc/flowguard)](https://github.com/xxvcc/flowguard/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/xxvcc/flowguard)](go.mod)
+
 > Lightweight VPS traffic allowance guard powered by `vnStat`, Linux `tc`, Telegram alerts, and a Bubble Tea TUI installer.
 
 [中文文档](README.zh-CN.md)

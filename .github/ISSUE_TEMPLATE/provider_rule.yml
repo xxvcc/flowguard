@@ -1,0 +1,32 @@
+name: Provider billing rule
+description: Request or document traffic billing rules for a VPS provider
+title: "Provider: "
+labels: [provider-rule]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider name
+      placeholder: AWS Lightsail, Hetzner, Vultr, etc.
+    validations:
+      required: true
+  - type: dropdown
+    id: billing_mode
+    attributes:
+      label: Billing mode
+      options:
+        - inbound + outbound
+        - outbound only
+        - unknown
+    validations:
+      required: true
+  - type: input
+    id: period
+    attributes:
+      label: Billing period start day
+      placeholder: "1"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and source links
+      description: Include official documentation links when possible.

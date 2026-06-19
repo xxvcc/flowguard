@@ -1,5 +1,10 @@
 # FlowGuard
 
+[![CI](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml/badge.svg)](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/xxvcc/flowguard)](https://github.com/xxvcc/flowguard/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/xxvcc/flowguard)](go.mod)
+
 > 基于 `vnStat`、Linux `tc`、Telegram 通知和 Bubble Tea TUI 安装向导的轻量 VPS 流量守卫。
 
 [English README](README.md)

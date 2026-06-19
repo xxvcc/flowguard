@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an improvement for FlowGuard
+title: "Feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What use case should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What behavior would you like?
+    validations:
+      required: true
