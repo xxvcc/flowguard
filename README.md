@@ -5,14 +5,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/xxvcc/flowguard)](go.mod)
 
-**FlowGuard** is a lightweight VPS bandwidth allowance guard. It watches traffic with `vnStat`, applies outbound shaping with Linux `tc`, and guides setup with a Bubble Tea TUI.
+**FlowGuard** 是一个轻量 VPS 流量额度守卫。它通过 `vnStat` 统计流量，用 Linux `tc` 做出站限速，并提供 Bubble Tea TUI 安装向导。
 
 <p align="center">
-  <strong>Prevent surprise bandwidth overage on small VPS instances.</strong>
+  <strong>帮小 VPS 降低流量超额和意外账单风险。</strong>
 </p>
 
 <p align="center">
-  <a href="README.zh-CN.md">中文文档</a> ·
+  <a href="README.en.md">English README</a> ·
   <a href="https://github.com/xxvcc/flowguard/releases">Releases</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="CHANGELOG.md">Changelog</a>
@@ -20,17 +20,17 @@
 
 ---
 
-## Install on a Fresh VPS
+## 全新 VPS 一行安装
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | sudo sh
 ```
 
-The installer downloads the latest GitHub Release, verifies `checksums.txt`, installs the `flowguard` binary, installs dependencies, and starts the setup wizard.
+安装脚本会下载最新 GitHub Release，校验 `checksums.txt`，安装 `flowguard` 二进制，安装依赖，并启动安装向导。
 
-> Running FlowGuard does **not** require Go on the VPS. Go is only needed when building from source.
+> VPS 上运行 FlowGuard **不需要 Go 环境**。只有从源码编译时才需要 Go。
 
-## TUI Preview
+## TUI 预览
 
 ```text
 ? Language / 语言 (↑/↓, Enter)
@@ -42,49 +42,49 @@ The installer downloads the latest GitHub Release, verifies `checksums.txt`, ins
   ○ outbound
 ```
 
-Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY input automatically falls back to numbered prompts.
+使用 `↑/↓` 移动，`Enter` 确认，也可以用数字键快捷选择。非 TTY 输入会自动回退为数字提示。
 
-## Why FlowGuard?
+## 为什么用 FlowGuard？
 
-| Problem | FlowGuard does |
+| 问题 | FlowGuard 的处理 |
 | --- | --- |
-| VPS traffic allowance is easy to exceed | Tracks usage with `vnStat` |
-| Providers count traffic differently | Supports `total` and `outbound` billing modes |
-| Sudden traffic spikes can become expensive | Warns, rate-limits, and supports first-limit dry run |
-| Manual traffic shaping is error-prone | Manages `tc` safely and avoids deleting unrelated qdiscs |
-| Fresh VPS setup should be simple | One-line installer and TUI wizard |
+| VPS 流量额度容易超 | 用 `vnStat` 持久化统计 |
+| 不同服务商计费规则不同 | 支持 `total` 和 `outbound` 两种计费模式 |
+| 突发流量可能导致账单风险 | 阈值提醒、自动限速、首次限速保护 |
+| 手动配置 `tc` 容易出错 | 自动管理限速，并避免误删无关 qdisc |
+| 新 VPS 配置繁琐 | 一行安装 + TUI 向导 |
 
-## Features
+## 功能
 
-- Persistent traffic accounting via `vnStat`
-- Billing modes: `total` (`rx + tx`) or `outbound` (`tx` only)
-- Billing period start day: `1-28`
-- Mid-cycle initial usage offset: none / total / split
-- Multi-interface support: `eth0,ens5` or `auto-public`
-- Threshold hysteresis to prevent limit flapping
-- First-limit dry run protection
-- Telegram notifications
-- Config backup and rollback
-- `doctor` diagnostics
-- `status --json` without leaking Telegram tokens
-- Hardened systemd service
-- Bubble Tea powered installer UI
+- 使用 `vnStat` 做持久化流量统计
+- 计费模式：`total`（入站 + 出站）或 `outbound`（仅出站）
+- 支持账期起始日：`1-28`
+- 支持安装时录入本月已用流量：不填 / 总量 / 分项
+- 支持多网卡：`eth0,ens5` 或 `auto-public`
+- 恢复阈值防抖，避免反复限速/解限
+- 首次限速保护：第一次触发只提醒，不立刻执行 `tc`
+- Telegram 通知
+- 配置自动备份和回滚
+- `doctor` 诊断命令
+- `status --json`，不会泄露 Telegram token
+- systemd 服务加固
+- 基于 Bubble Tea 的安装 TUI
 
-## Common Commands
+## 常用命令
 
-| Command | Purpose |
+| 命令 | 用途 |
 | --- | --- |
-| `flowguard status` | Show current traffic, decision, and `tc` state |
-| `flowguard status --json` | Script-friendly status output |
-| `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
-| `flowguard modify --allowance 1000GB` | Update config with automatic backup |
-| `flowguard rollback` | Restore latest config backup |
-| `flowguard test-notify` | Send a Telegram test notification |
-| `flowguard uninstall --keep-config=true` | Remove service while keeping config/state |
+| `flowguard status` | 查看当前流量、决策和 `tc` 状态 |
+| `flowguard status --json` | 输出适合脚本读取的 JSON |
+| `flowguard doctor` | 检查配置、`vnStat`、`tc`、网卡和服务 |
+| `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
+| `flowguard rollback` | 回滚到最近一次配置备份 |
+| `flowguard test-notify` | 发送 Telegram 测试通知 |
+| `flowguard uninstall --keep-config=true` | 卸载服务但保留配置和状态 |
 
-## Non-Interactive Install
+## 非交互安装
 
-Provider counts inbound + outbound:
+服务商按入站 + 出站计费：
 
 ```bash
 sudo flowguard install --yes \
@@ -94,7 +94,7 @@ sudo flowguard install --yes \
   --initial-total 0
 ```
 
-Provider counts outbound only:
+服务商只按出站计费：
 
 ```bash
 sudo flowguard install --yes \
@@ -105,7 +105,7 @@ sudo flowguard install --yes \
   --initial-tx 80GB
 ```
 
-Enable Telegram:
+启用 Telegram：
 
 ```bash
 sudo flowguard install --yes \
@@ -115,7 +115,7 @@ sudo flowguard install --yes \
   --tg-chat-id '123456789'
 ```
 
-## Build from Source
+## 从源码构建
 
 ```bash
 git clone https://github.com/xxvcc/flowguard.git
@@ -124,9 +124,9 @@ go build -o flowguard ./cmd/flowguard
 sudo ./flowguard install
 ```
 
-## Release Assets
+## Release 资产
 
-Automatic releases provide:
+自动 Release 会生成：
 
 ```text
 flowguard_linux_amd64.tar.gz
@@ -135,16 +135,16 @@ flowguard_linux_armv7.tar.gz
 checksums.txt
 ```
 
-For mirrors or self-hosted release files:
+如果使用镜像或自建 release 文件：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
   sudo env FLOWGUARD_BASE_URL=https://example.com/flowguard/releases/latest sh
 ```
 
-## Configuration
+## 配置文件
 
-Default config path: `/etc/flowguard/config.json`
+默认路径：`/etc/flowguard/config.json`
 
 ```json
 {
@@ -180,14 +180,14 @@ Default config path: `/etc/flowguard/config.json`
 }
 ```
 
-## Notes and Limitations
+## 注意事项和限制
 
-- `vnStat` may need 1-2 minutes after installation before data appears.
-- `period_day=1` uses `vnStat` monthly data; other start days sum `vnStat` daily data.
-- If internal/private traffic is free on a separate NIC, monitor only the public NIC.
-- If public and private traffic share one NIC, `vnStat` cannot distinguish them; a future nftables accounting mode would be needed.
-- `flowguard limit` replaces the root qdisc with `tbf`; do not combine it with another root `tc` shaper on the same interface.
-- `flowguard unlimit` only removes the root qdisc when it is currently `tbf`.
+- `vnStat` 安装后可能需要 1-2 分钟才有可用数据。
+- `period_day=1` 使用 `vnStat` 月统计；其他起始日通过 `vnStat` 日统计累加。
+- 如果服务商内网免费且内网有独立网卡，只监控公网网卡即可。
+- 如果公网/内网共用同一网卡，`vnStat` 无法区分，需要未来增加 nftables 统计模式。
+- `flowguard limit` 会把网卡 root qdisc 替换成 `tbf`，不要和其他 root `tc` 限速器共用。
+- `flowguard unlimit` 只会在当前 root qdisc 是 `tbf` 时删除，避免误删默认 `mq/fq_codel`。
 
 ## License
 
