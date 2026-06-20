@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,6 +157,40 @@ func TestCmdTopupAddsAllowance(t *testing.T) {
 	want := uint64(101) * 1000 * 1000 * 1000
 	if updated.AllowanceBytes != want {
 		t.Fatalf("allowance=%d, want %d", updated.AllowanceBytes, want)
+	}
+}
+
+func TestCmdModifyUpdatesLanguage(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	cfg := config.DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.Interfaces = []string{"eth0"}
+	cfg.AllowanceBytes = 1000 * 1000 * 1000
+	cfg.Language = "zh"
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdModify([]string{"--config", cfgPath, "--state", filepath.Join(dir, "state.json"), "--language", "en"}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Language != "en" {
+		t.Fatalf("language=%q", updated.Language)
+	}
+}
+
+func TestFormatNotificationUsesChinese(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.AllowanceBytes = 1000
+	cfg.Language = "zh"
+	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn})
+	if !strings.Contains(msg, "流量额度") || !strings.Contains(msg, "剩余额度") {
+		t.Fatalf("notification not localized: %s", msg)
 	}
 }
 

@@ -84,6 +84,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard status --json` | Script-friendly status output |
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
+| `flowguard modify --language en` | Switch later command and notification output language |
 | `flowguard topup 100GB` | Add purchased traffic allowance, then immediately recheck/unlimit |
 | `flowguard topup 100` | Same as above; bare numbers default to `GB` |
 | `flowguard rollback` | Restore latest config backup |

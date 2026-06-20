@@ -40,6 +40,21 @@ func TestValidateRejectsInvalidThresholds(t *testing.T) {
 	}
 }
 
+func TestValidateLanguage(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.Interfaces = []string{"eth0"}
+	cfg.AllowanceBytes = 1000
+	cfg.Language = "en"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Language = "fr"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid language error")
+	}
+}
+
 func TestLoadStateNormalizesInvalidLevels(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")

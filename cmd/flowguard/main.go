@@ -89,6 +89,7 @@ func cmdModify(args []string) error {
 	allowance := fs.String("allowance", "", "monthly allowance")
 	ifaceValue := fs.String("interface", "", "interface, comma list, or auto-public")
 	billingMode := fs.String("billing-mode", "", "total or outbound")
+	language := fs.String("language", "", "output language: zh or en")
 	periodDay := fs.Int("period-day", 0, "billing period start day")
 	softRate := fs.String("soft-rate", "", "soft limit rate")
 	hardRate := fs.String("hard-rate", "", "hard limit rate")
@@ -131,6 +132,9 @@ func cmdModify(args []string) error {
 	}
 	if *billingMode != "" {
 		cfg.BillingMode = *billingMode
+	}
+	if *language != "" {
+		cfg.Language = *language
 	}
 	if *periodDay != 0 {
 		cfg.PeriodDay = *periodDay
@@ -178,7 +182,7 @@ func cmdModify(args []string) error {
 		cfg.Safety.FirstLimitDryRun = *firstLimitDryRun
 	}
 	if backup, err := config.Backup(*cfgPath); err == nil && backup != "" {
-		fmt.Printf("Backup: %s\n", backup)
+		printBackup(cfg, backup)
 	} else if err != nil {
 		return err
 	}
@@ -189,9 +193,17 @@ func cmdModify(args []string) error {
 		_ = service.Restart()
 	}
 	_ = *statePath
-	fmt.Printf("Updated config: %s\n", *cfgPath)
+	if isZH(cfg) {
+		fmt.Printf("已更新配置：%s\n", *cfgPath)
+	} else {
+		fmt.Printf("Updated config: %s\n", *cfgPath)
+	}
 	if err := printStatus(cfg, *statePath, false); err != nil {
-		fmt.Fprintf(os.Stderr, "status warning: %v\n", err)
+		if isZH(cfg) {
+			fmt.Fprintf(os.Stderr, "状态检查警告：%v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "status warning: %v\n", err)
+		}
 	}
 	return nil
 }
@@ -238,19 +250,30 @@ func cmdTopup(args []string) error {
 	}
 	cfg.AllowanceBytes += extraBytes
 	if backup, err := config.Backup(*cfgPath); err == nil && backup != "" {
-		fmt.Printf("Backup: %s\n", backup)
+		printBackup(cfg, backup)
 	} else if err != nil {
 		return err
 	}
 	if err := config.Save(*cfgPath, cfg); err != nil {
 		return err
 	}
-	fmt.Printf("Allowance increased: %s + %s = %s\n", util.FormatBytes(oldAllowance), util.FormatBytes(extraBytes), util.FormatBytes(cfg.AllowanceBytes))
+	if isZH(cfg) {
+		fmt.Printf("流量额度已增加：%s + %s = %s\n", util.FormatBytes(oldAllowance), util.FormatBytes(extraBytes), util.FormatBytes(cfg.AllowanceBytes))
+	} else {
+		fmt.Printf("Allowance increased: %s + %s = %s\n", util.FormatBytes(oldAllowance), util.FormatBytes(extraBytes), util.FormatBytes(cfg.AllowanceBytes))
+	}
 	if *checkNow {
 		if err := evaluateOnce(cfg, *statePath, true); err != nil {
+			if isZH(cfg) {
+				return fmt.Errorf("追加额度已保存，但立即检查失败：%w", err)
+			}
 			return fmt.Errorf("topup saved, but immediate check failed: %w", err)
 		}
-		fmt.Println("Rechecked current usage and limit state.")
+		if isZH(cfg) {
+			fmt.Println("已重新检查当前用量和限速状态。")
+		} else {
+			fmt.Println("Rechecked current usage and limit state.")
+		}
 	}
 	return nil
 }
@@ -322,10 +345,30 @@ func cmdUninstall(args []string) error {
 		_ = os.Remove("/usr/local/bin/flowguard")
 	}
 	if haveConfig {
-		fmt.Println("FlowGuard limits removed for configured interfaces.")
+		if isZH(cfg) {
+			fmt.Println("已清理配置网卡上的 FlowGuard 限速。")
+		} else {
+			fmt.Println("FlowGuard limits removed for configured interfaces.")
+		}
 	}
-	fmt.Println("FlowGuard uninstalled.")
+	if haveConfig && isZH(cfg) {
+		fmt.Println("FlowGuard 已卸载。")
+	} else {
+		fmt.Println("FlowGuard uninstalled.")
+	}
 	return nil
+}
+
+func printBackup(cfg config.Config, backup string) {
+	if isZH(cfg) {
+		fmt.Printf("备份：%s\n", backup)
+		return
+	}
+	fmt.Printf("Backup: %s\n", backup)
+}
+
+func isZH(cfg config.Config) bool {
+	return cfg.Language == "" || cfg.Language == "zh"
 }
 
 func removeManagedFile(path string, defaultPath string) error {
@@ -420,7 +463,11 @@ func cmdRollback(args []string) error {
 	if *cfgPath == config.DefaultConfigPath {
 		_ = service.Restart()
 	}
-	fmt.Printf("Rolled back %s from %s\n", *cfgPath, backup)
+	if isZH(cfg) {
+		fmt.Printf("已将 %s 回滚到备份 %s\n", *cfgPath, backup)
+	} else {
+		fmt.Printf("Rolled back %s from %s\n", *cfgPath, backup)
+	}
 	return nil
 }
 
@@ -613,25 +660,46 @@ func printStatus(cfg config.Config, statePath string, jsonOutput bool) error {
 		fmt.Println(string(data))
 		return nil
 	}
-	fmt.Printf("Interface: %s\n", cfg.Interface)
-	fmt.Printf("Interfaces: %s\n", strings.Join(cfg.Interfaces, ","))
-	fmt.Printf("Period: %s\n", usage.Period)
-	fmt.Printf("Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))
-	fmt.Printf("Inbound: %s\n", util.FormatBytes(usage.RXBytes))
-	fmt.Printf("Outbound: %s\n", util.FormatBytes(usage.TXBytes))
-	fmt.Printf("Total: %s\n", util.FormatBytes(usage.TotalBytes))
-	fmt.Printf("Billing mode: %s, billable: %s (%.2f%%)\n", cfg.BillingMode, util.FormatBytes(usage.BillableBytes), usage.Percent)
-	fmt.Printf("Remaining: %s\n", util.FormatBytes(report.RemainingBytes))
-	if report.RemainingBytes <= cfg.AllowanceBytes/10 {
-		fmt.Println("Risk: remaining allowance is below 10%")
+	if isZH(cfg) {
+		fmt.Printf("主网卡：%s\n", cfg.Interface)
+		fmt.Printf("网卡列表：%s\n", strings.Join(cfg.Interfaces, ","))
+		fmt.Printf("账期：%s\n", usage.Period)
+		fmt.Printf("流量额度：%s\n", util.FormatBytes(cfg.AllowanceBytes))
+		fmt.Printf("入站：%s\n", util.FormatBytes(usage.RXBytes))
+		fmt.Printf("出站：%s\n", util.FormatBytes(usage.TXBytes))
+		fmt.Printf("总流量：%s\n", util.FormatBytes(usage.TotalBytes))
+		fmt.Printf("计费模式：%s，计费用量：%s (%.2f%%)\n", cfg.BillingMode, util.FormatBytes(usage.BillableBytes), usage.Percent)
+		fmt.Printf("剩余额度：%s\n", util.FormatBytes(report.RemainingBytes))
+		if report.RemainingBytes <= cfg.AllowanceBytes/10 {
+			fmt.Println("风险：剩余额度低于 10%")
+		}
+		fmt.Printf("距离上次检查增量：入站 +%s，出站 +%s，总计 +%s\n", util.FormatBytes(report.DeltaBytes["rx"]), util.FormatBytes(report.DeltaBytes["tx"]), util.FormatBytes(report.DeltaBytes["total"]))
+		fmt.Printf("决策：%s", decision.Level)
+	} else {
+		fmt.Printf("Interface: %s\n", cfg.Interface)
+		fmt.Printf("Interfaces: %s\n", strings.Join(cfg.Interfaces, ","))
+		fmt.Printf("Period: %s\n", usage.Period)
+		fmt.Printf("Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))
+		fmt.Printf("Inbound: %s\n", util.FormatBytes(usage.RXBytes))
+		fmt.Printf("Outbound: %s\n", util.FormatBytes(usage.TXBytes))
+		fmt.Printf("Total: %s\n", util.FormatBytes(usage.TotalBytes))
+		fmt.Printf("Billing mode: %s, billable: %s (%.2f%%)\n", cfg.BillingMode, util.FormatBytes(usage.BillableBytes), usage.Percent)
+		fmt.Printf("Remaining: %s\n", util.FormatBytes(report.RemainingBytes))
+		if report.RemainingBytes <= cfg.AllowanceBytes/10 {
+			fmt.Println("Risk: remaining allowance is below 10%")
+		}
+		fmt.Printf("Delta since last check: inbound +%s, outbound +%s, total +%s\n", util.FormatBytes(report.DeltaBytes["rx"]), util.FormatBytes(report.DeltaBytes["tx"]), util.FormatBytes(report.DeltaBytes["total"]))
+		fmt.Printf("Decision: %s", decision.Level)
 	}
-	fmt.Printf("Delta since last check: inbound +%s, outbound +%s, total +%s\n", util.FormatBytes(report.DeltaBytes["rx"]), util.FormatBytes(report.DeltaBytes["tx"]), util.FormatBytes(report.DeltaBytes["total"]))
-	fmt.Printf("Decision: %s", decision.Level)
 	if decision.LimitRate != "" {
 		fmt.Printf(" at %s", decision.LimitRate)
 	}
 	fmt.Println()
-	fmt.Printf("State: level=%s limited=%v rate=%s\n", state.Level, state.Limited, state.CurrentLimitRate)
+	if isZH(cfg) {
+		fmt.Printf("状态：等级=%s 已限速=%v 速率=%s\n", state.Level, state.Limited, state.CurrentLimitRate)
+	} else {
+		fmt.Printf("State: level=%s limited=%v rate=%s\n", state.Level, state.Limited, state.CurrentLimitRate)
+	}
 	for iface, tc := range report.TC {
 		fmt.Printf("tc[%s]: %s\n", iface, tc)
 	}
@@ -660,7 +728,7 @@ func buildStatusReport(cfg config.Config, usage traffic.Usage, state config.Stat
 	for _, iface := range cfg.Interfaces {
 		tc[iface] = traffic.CurrentLimit(iface)
 	}
-	configSummary := map[string]any{"interface": cfg.Interface, "interfaces": cfg.Interfaces, "allowance_bytes": cfg.AllowanceBytes, "period_day": cfg.PeriodDay, "billing_mode": cfg.BillingMode, "check_interval_seconds": cfg.CheckIntervalSeconds, "telegram_enabled": cfg.Telegram.Enabled}
+	configSummary := map[string]any{"interface": cfg.Interface, "interfaces": cfg.Interfaces, "allowance_bytes": cfg.AllowanceBytes, "language": cfg.Language, "period_day": cfg.PeriodDay, "billing_mode": cfg.BillingMode, "check_interval_seconds": cfg.CheckIntervalSeconds, "telegram_enabled": cfg.Telegram.Enabled}
 	return statusReport{Config: configSummary, Usage: usage, State: state, Decision: decision, RemainingBytes: remaining, DeltaBytes: delta, TC: tc}
 }
 
@@ -887,6 +955,9 @@ func removeLimits(cfg config.Config) error {
 }
 
 func formatDryRunNotification(cfg config.Config, usage traffic.Usage, decision traffic.Decision) string {
+	if isZH(cfg) {
+		return formatNotification(cfg, usage, decision) + "\n首次限速保护：本轮只通知，不执行 tc 限速。下次仍满足条件时会实际限速。"
+	}
 	return formatNotification(cfg, usage, decision) + "\nFirst-limit dry run: no tc limit applied this cycle. Next matching cycle will apply the limit."
 }
 
@@ -907,6 +978,30 @@ func notificationKey(decision traffic.Decision) string {
 
 func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic.Decision) string {
 	var b strings.Builder
+	if isZH(cfg) {
+		fmt.Fprintf(&b, "FlowGuard：%s\n\n", decision.Level)
+		fmt.Fprintf(&b, "网卡：%s\n", cfg.Interface)
+		fmt.Fprintf(&b, "流量额度：%s\n", util.FormatBytes(cfg.AllowanceBytes))
+		fmt.Fprintf(&b, "计费模式：%s\n", cfg.BillingMode)
+		fmt.Fprintf(&b, "计费用量：%s / %s (%.2f%%)\n", util.FormatBytes(usage.BillableBytes), util.FormatBytes(cfg.AllowanceBytes), usage.Percent)
+		if cfg.AllowanceBytes > usage.BillableBytes {
+			fmt.Fprintf(&b, "剩余额度：%s\n", util.FormatBytes(cfg.AllowanceBytes-usage.BillableBytes))
+		} else {
+			fmt.Fprintf(&b, "剩余额度：0 B\n")
+		}
+		if cfg.AllowanceBytes > 0 && usage.BillableBytes >= cfg.AllowanceBytes*90/100 {
+			fmt.Fprintf(&b, "风险：剩余额度低于 10%%\n")
+		}
+		fmt.Fprintf(&b, "总流量：%s\n", util.FormatBytes(usage.TotalBytes))
+		fmt.Fprintf(&b, "入站：%s\n", util.FormatBytes(usage.RXBytes))
+		fmt.Fprintf(&b, "出站：%s\n", util.FormatBytes(usage.TXBytes))
+		if decision.LimitRate != "" {
+			fmt.Fprintf(&b, "限速：%s\n", decision.LimitRate)
+		} else {
+			fmt.Fprintf(&b, "限速：无\n")
+		}
+		return b.String()
+	}
 	fmt.Fprintf(&b, "FlowGuard: %s\n\n", decision.Level)
 	fmt.Fprintf(&b, "Interface: %s\n", cfg.Interface)
 	fmt.Fprintf(&b, "Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))

@@ -246,6 +246,7 @@ func buildConfig(opts Options, iface string) (config.Config, string, error) {
 	if lang == "" {
 		lang = "zh"
 	}
+	cfg.Language = lang
 	if opts.PeriodDay != 0 {
 		cfg.PeriodDay = opts.PeriodDay
 	}
@@ -277,6 +278,7 @@ func buildConfig(opts Options, iface string) (config.Config, string, error) {
 	if lang == "" {
 		lang = util.PromptChoice(scanner, "Language / 语言", "zh", []string{"zh", "en"})
 	}
+	cfg.Language = lang
 	tr := labels(lang)
 	allowance := opts.Allowance
 	if allowance == "" {

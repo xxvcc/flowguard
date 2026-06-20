@@ -30,6 +30,7 @@ type Config struct {
 	Interface            string     `json:"interface"`
 	Interfaces           []string   `json:"interfaces"`
 	AllowanceBytes       uint64     `json:"allowance_bytes"`
+	Language             string     `json:"language,omitempty"`
 	PeriodDay            int        `json:"period_day"`
 	BillingMode          string     `json:"billing_mode"`
 	CheckIntervalSeconds int        `json:"check_interval_seconds"`
@@ -89,6 +90,7 @@ type State struct {
 func DefaultConfig() Config {
 	return Config{
 		PeriodDay:            1,
+		Language:             "zh",
 		BillingMode:          "total",
 		CheckIntervalSeconds: 60,
 		Thresholds: Thresholds{
@@ -135,6 +137,9 @@ func Load(path string) (Config, error) {
 func (c *Config) Normalize() {
 	if c.BillingMode == "" {
 		c.BillingMode = "total"
+	}
+	if c.Language == "" {
+		c.Language = "zh"
 	}
 	if len(c.Interfaces) == 0 && c.Interface != "" {
 		c.Interfaces = []string{c.Interface}
@@ -194,6 +199,9 @@ func (c Config) Validate() error {
 	}
 	if c.BillingMode != "total" && c.BillingMode != "outbound" {
 		return errors.New("billing_mode must be total or outbound")
+	}
+	if c.Language != "zh" && c.Language != "en" {
+		return errors.New("language must be zh or en")
 	}
 	if c.CheckIntervalSeconds < 10 {
 		return errors.New("check_interval_seconds must be >= 10")
