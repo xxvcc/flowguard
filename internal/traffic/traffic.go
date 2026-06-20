@@ -30,6 +30,19 @@ type Usage struct {
 	Percent       float64  `json:"percent"`
 }
 
+type UsageSummary struct {
+	RXBytes       uint64 `json:"rx_bytes"`
+	TXBytes       uint64 `json:"tx_bytes"`
+	TotalBytes    uint64 `json:"total_bytes"`
+	BillableBytes uint64 `json:"billable_bytes"`
+}
+
+type RecentUsage struct {
+	Today     UsageSummary `json:"today"`
+	Yesterday UsageSummary `json:"yesterday"`
+	ThisWeek  UsageSummary `json:"this_week"`
+}
+
 type Decision struct {
 	Level     string `json:"level"`
 	LimitRate string `json:"limit_rate"`
@@ -125,6 +138,78 @@ func ReadUsage(cfg config.Config, now time.Time) (Usage, error) {
 		BillableBytes: billable,
 		Percent:       float64(billable) * 100 / float64(cfg.AllowanceBytes),
 	}, nil
+}
+
+func ReadRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
+	result, err := util.Run(30*time.Second, "vnstat", "--json")
+	if err != nil {
+		return RecentUsage{}, err
+	}
+	var parsed vnstatJSON
+	if err := json.Unmarshal([]byte(result.Stdout), &parsed); err != nil {
+		return RecentUsage{}, err
+	}
+	today := dateOnly(now)
+	yesterday := today.AddDate(0, 0, -1)
+	weekStart := today.AddDate(0, 0, -daysSinceMonday(today))
+	todayRX, todayTX, err := sumInterfaceDays(parsed, cfg.Interfaces, today, today)
+	if err != nil {
+		return RecentUsage{}, err
+	}
+	yesterdayRX, yesterdayTX, err := sumInterfaceDays(parsed, cfg.Interfaces, yesterday, yesterday)
+	if err != nil {
+		return RecentUsage{}, err
+	}
+	weekRX, weekTX, err := sumInterfaceDays(parsed, cfg.Interfaces, weekStart, today)
+	if err != nil {
+		return RecentUsage{}, err
+	}
+	return RecentUsage{
+		Today:     makeUsageSummary(cfg, todayRX, todayTX),
+		Yesterday: makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
+		ThisWeek:  makeUsageSummary(cfg, weekRX, weekTX),
+	}, nil
+}
+
+func makeUsageSummary(cfg config.Config, rx uint64, tx uint64) UsageSummary {
+	total := saturatingAdd(rx, tx)
+	billable := total
+	if cfg.BillingMode == "outbound" {
+		billable = tx
+	}
+	return UsageSummary{RXBytes: rx, TXBytes: tx, TotalBytes: total, BillableBytes: billable}
+}
+
+func sumInterfaceDays(data vnstatJSON, interfaces []string, start time.Time, end time.Time) (uint64, uint64, error) {
+	var rx uint64
+	var tx uint64
+	for _, iface := range interfaces {
+		ifaceRX, ifaceTX, err := sumInterfaceDaysFor(data, iface, start, end)
+		if err != nil {
+			return 0, 0, err
+		}
+		rx = saturatingAdd(rx, ifaceRX)
+		tx = saturatingAdd(tx, ifaceTX)
+	}
+	return rx, tx, nil
+}
+
+func sumInterfaceDaysFor(data vnstatJSON, iface string, start time.Time, end time.Time) (uint64, uint64, error) {
+	for _, item := range data.Interfaces {
+		if item.Name != iface {
+			continue
+		}
+		return sumDays(item.Traffic.Days, start, end)
+	}
+	return 0, 0, fmt.Errorf("interface %q not found in vnstat output", iface)
+}
+
+func dateOnly(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+}
+
+func daysSinceMonday(value time.Time) int {
+	return (int(value.Weekday()) + 6) % 7
 }
 
 func saturatingAdd(left uint64, right uint64) uint64 {

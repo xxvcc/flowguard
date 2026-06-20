@@ -54,6 +54,48 @@ func TestSumDaysForCustomPeriod(t *testing.T) {
 	}
 }
 
+func TestRecentUsageWeekStartsMonday(t *testing.T) {
+	monday := vnstatPeriod{RX: 1, TX: 2}
+	monday.Date.Year = 2026
+	monday.Date.Month = 6
+	monday.Date.Day = 15
+	yesterday := vnstatPeriod{RX: 3, TX: 4}
+	yesterday.Date.Year = 2026
+	yesterday.Date.Month = 6
+	yesterday.Date.Day = 19
+	today := vnstatPeriod{RX: 5, TX: 6}
+	today.Date.Year = 2026
+	today.Date.Month = 6
+	today.Date.Day = 20
+	beforeWeek := vnstatPeriod{RX: 100, TX: 100}
+	beforeWeek.Date.Year = 2026
+	beforeWeek.Date.Month = 6
+	beforeWeek.Date.Day = 14
+	data := vnstatJSON{Interfaces: []vnstatInterface{{Name: "eth0", Traffic: vnstatTraffic{Days: []vnstatPeriod{beforeWeek, monday, yesterday, today}}}}}
+	now, _ := time.Parse(time.RFC3339, "2026-06-20T12:00:00Z")
+	cfg := config.DefaultConfig()
+	cfg.Interfaces = []string{"eth0"}
+	cfg.BillingMode = "outbound"
+	todayRX, todayTX, err := sumInterfaceDays(data, cfg.Interfaces, dateOnly(now), dateOnly(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if todayRX != 5 || todayTX != 6 {
+		t.Fatalf("today rx=%d tx=%d", todayRX, todayTX)
+	}
+	weekStart := dateOnly(now).AddDate(0, 0, -daysSinceMonday(dateOnly(now)))
+	weekRX, weekTX, err := sumInterfaceDays(data, cfg.Interfaces, weekStart, dateOnly(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if weekRX != 9 || weekTX != 12 {
+		t.Fatalf("week rx=%d tx=%d", weekRX, weekTX)
+	}
+	if got := makeUsageSummary(cfg, weekRX, weekTX).BillableBytes; got != 12 {
+		t.Fatalf("outbound billable=%d", got)
+	}
+}
+
 func TestDecide(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AllowanceBytes = 1000

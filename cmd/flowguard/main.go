@@ -197,7 +197,7 @@ func cmdModify(args []string) error {
 	} else {
 		fmt.Printf("Updated config: %s\n", *cfgPath)
 	}
-	if err := printStatus(cfg, *statePath, false); err != nil {
+	if err := printStatus(cfg, *statePath, false, false); err != nil {
 		if isZH(cfg) {
 			fmt.Fprintf(os.Stderr, "状态检查警告：%v\n", err)
 		} else {
@@ -433,6 +433,7 @@ type helpEntry struct {
 var helpEntries = []helpEntry{
 	{"flowguard install", "安装依赖、生成配置并安装 systemd 服务", "Install dependencies, write config, and install systemd service"},
 	{"flowguard status", "查看当前流量、决策和 tc 状态", "Show current traffic, decision, and tc state"},
+	{"flowguard status --verbose", "显示原始 tc 等技术细节", "Show raw tc and other technical details"},
 	{"flowguard status --json", "输出适合脚本读取的 JSON", "Print script-friendly JSON status"},
 	{"flowguard doctor", "检查配置、vnStat、tc、网卡和服务", "Diagnose config, vnStat, tc, interfaces, and service"},
 	{"flowguard modify --allowance 1000GB", "修改配置并自动备份", "Update config with automatic backup"},
@@ -672,6 +673,7 @@ func cmdStatus(args []string) error {
 	cfgPath := fs.String("config", config.DefaultConfigPath, "config path")
 	statePath := fs.String("state", config.DefaultStatePath, "state path")
 	jsonOutput := fs.Bool("json", false, "print JSON status")
+	verbose := fs.Bool("verbose", false, "print technical details such as raw tc output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -679,21 +681,23 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	return printStatus(cfg, *statePath, *jsonOutput)
+	return printStatus(cfg, *statePath, *jsonOutput, *verbose)
 }
 
 type statusReport struct {
-	Config         map[string]any    `json:"config"`
-	Usage          traffic.Usage     `json:"usage"`
-	State          config.State      `json:"state"`
-	Decision       traffic.Decision  `json:"decision"`
-	RemainingBytes uint64            `json:"remaining_bytes"`
-	DeltaBytes     map[string]uint64 `json:"delta_bytes"`
-	TC             map[string]string `json:"tc"`
+	Config         map[string]any       `json:"config"`
+	Usage          traffic.Usage        `json:"usage"`
+	RecentUsage    *traffic.RecentUsage `json:"recent_usage,omitempty"`
+	State          config.State         `json:"state"`
+	Decision       traffic.Decision     `json:"decision"`
+	RemainingBytes uint64               `json:"remaining_bytes"`
+	DeltaBytes     map[string]uint64    `json:"delta_bytes"`
+	TC             map[string]string    `json:"tc"`
 }
 
-func printStatus(cfg config.Config, statePath string, jsonOutput bool) error {
-	usage, err := traffic.ReadUsage(cfg, time.Now())
+func printStatus(cfg config.Config, statePath string, jsonOutput bool, verbose bool) error {
+	now := time.Now()
+	usage, err := traffic.ReadUsage(cfg, now)
 	if err != nil {
 		return err
 	}
@@ -703,6 +707,10 @@ func printStatus(cfg config.Config, statePath string, jsonOutput bool) error {
 	}
 	decision := traffic.DecideWithState(cfg, usage, state)
 	report := buildStatusReport(cfg, usage, state, decision)
+	recent, recentErr := traffic.ReadRecentUsage(cfg, now)
+	if recentErr == nil {
+		report.RecentUsage = &recent
+	}
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -711,50 +719,270 @@ func printStatus(cfg config.Config, statePath string, jsonOutput bool) error {
 		fmt.Println(string(data))
 		return nil
 	}
-	if isZH(cfg) {
-		fmt.Printf("主网卡：%s\n", cfg.Interface)
-		fmt.Printf("网卡列表：%s\n", strings.Join(cfg.Interfaces, ","))
-		fmt.Printf("账期：%s\n", usage.Period)
-		fmt.Printf("流量额度：%s\n", util.FormatBytes(cfg.AllowanceBytes))
-		fmt.Printf("入站：%s\n", util.FormatBytes(usage.RXBytes))
-		fmt.Printf("出站：%s\n", util.FormatBytes(usage.TXBytes))
-		fmt.Printf("总流量：%s\n", util.FormatBytes(usage.TotalBytes))
-		fmt.Printf("计费模式：%s，计费用量：%s (%.2f%%)\n", cfg.BillingMode, util.FormatBytes(usage.BillableBytes), usage.Percent)
-		fmt.Printf("剩余额度：%s\n", util.FormatBytes(report.RemainingBytes))
-		if report.RemainingBytes <= cfg.AllowanceBytes/10 {
-			fmt.Println("风险：剩余额度低于 10%")
-		}
-		fmt.Printf("距离上次检查增量：入站 +%s，出站 +%s，总计 +%s\n", util.FormatBytes(report.DeltaBytes["rx"]), util.FormatBytes(report.DeltaBytes["tx"]), util.FormatBytes(report.DeltaBytes["total"]))
-		fmt.Printf("决策：%s", decision.Level)
-	} else {
-		fmt.Printf("Interface: %s\n", cfg.Interface)
-		fmt.Printf("Interfaces: %s\n", strings.Join(cfg.Interfaces, ","))
-		fmt.Printf("Period: %s\n", usage.Period)
-		fmt.Printf("Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))
-		fmt.Printf("Inbound: %s\n", util.FormatBytes(usage.RXBytes))
-		fmt.Printf("Outbound: %s\n", util.FormatBytes(usage.TXBytes))
-		fmt.Printf("Total: %s\n", util.FormatBytes(usage.TotalBytes))
-		fmt.Printf("Billing mode: %s, billable: %s (%.2f%%)\n", cfg.BillingMode, util.FormatBytes(usage.BillableBytes), usage.Percent)
-		fmt.Printf("Remaining: %s\n", util.FormatBytes(report.RemainingBytes))
-		if report.RemainingBytes <= cfg.AllowanceBytes/10 {
-			fmt.Println("Risk: remaining allowance is below 10%")
-		}
-		fmt.Printf("Delta since last check: inbound +%s, outbound +%s, total +%s\n", util.FormatBytes(report.DeltaBytes["rx"]), util.FormatBytes(report.DeltaBytes["tx"]), util.FormatBytes(report.DeltaBytes["total"]))
-		fmt.Printf("Decision: %s", decision.Level)
+	printStatusDashboard(cfg, report, recentErr, now)
+	if verbose {
+		printStatusTechnicalDetails(cfg, report, recentErr)
 	}
-	if decision.LimitRate != "" {
-		fmt.Printf(" at %s", decision.LimitRate)
+	return nil
+}
+
+func printStatusDashboard(cfg config.Config, report statusReport, recentErr error, now time.Time) {
+	usage := report.Usage
+	state := report.State
+	decision := report.Decision
+	if isZH(cfg) {
+		fmt.Println(statusTitle("FlowGuard 流量看板"))
+		fmt.Printf("%-10s %s\n", "账期", periodRangeText(cfg, now, true))
+		fmt.Printf("%-10s %s\n", "网卡", strings.Join(cfg.Interfaces, ","))
+		fmt.Printf("%-10s %s\n", "状态", statusBadge(state, decision)+" "+stateText(state, decision, true))
+		fmt.Printf("%-10s %s %.2f%%  %s / %s\n", "进度", progressBar(usage.Percent, 24), usage.Percent, util.FormatBytes(usage.BillableBytes), util.FormatBytes(cfg.AllowanceBytes))
+		fmt.Printf("%-10s %s\n", "剩余", util.FormatBytes(report.RemainingBytes))
+		fmt.Println()
+		fmt.Println(statusSection("近期计费用量"))
+		printRecentUsageDashboard(report.RecentUsage, true)
+		if recentErr != nil {
+			fmt.Printf("  说明      近期统计暂不可用（可用 --verbose 查看原因）\n")
+		}
+		fmt.Println()
+		fmt.Println(statusSection("流量方向"))
+		fmt.Printf("  %-8s %s\n", "入站", util.FormatBytes(usage.RXBytes))
+		fmt.Printf("  %-8s %s\n", "出站", util.FormatBytes(usage.TXBytes))
+		fmt.Println()
+		fmt.Println(statusSection("策略"))
+		fmt.Printf("  %-8s %s\n", "计费方式", billingModeText(cfg, true))
+		fmt.Printf("  %-8s %s\n", "本次决策", decisionText(decision, true))
+		if report.RemainingBytes <= cfg.AllowanceBytes/10 {
+			fmt.Printf("  %-8s %s\n", "风险", statusWarn("剩余额度低于 10%"))
+		}
+		return
+	}
+	fmt.Println(statusTitle("FlowGuard dashboard"))
+	fmt.Printf("%-12s %s\n", "Period", periodRangeText(cfg, now, false))
+	fmt.Printf("%-12s %s\n", "Interfaces", strings.Join(cfg.Interfaces, ","))
+	fmt.Printf("%-12s %s %s\n", "State", statusBadge(state, decision), stateText(state, decision, false))
+	fmt.Printf("%-12s %s %.2f%%  %s / %s\n", "Progress", progressBar(usage.Percent, 24), usage.Percent, util.FormatBytes(usage.BillableBytes), util.FormatBytes(cfg.AllowanceBytes))
+	fmt.Printf("%-12s %s\n", "Remaining", util.FormatBytes(report.RemainingBytes))
+	fmt.Println()
+	fmt.Println(statusSection("Recent billable usage"))
+	printRecentUsageDashboard(report.RecentUsage, false)
+	if recentErr != nil {
+		fmt.Printf("  %-10s recent usage unavailable (use --verbose for details)\n", "Note")
 	}
 	fmt.Println()
-	if isZH(cfg) {
-		fmt.Printf("状态：等级=%s 已限速=%v 速率=%s\n", state.Level, state.Limited, state.CurrentLimitRate)
-	} else {
-		fmt.Printf("State: level=%s limited=%v rate=%s\n", state.Level, state.Limited, state.CurrentLimitRate)
+	fmt.Println(statusSection("Traffic direction"))
+	fmt.Printf("  %-10s %s\n", "Inbound", util.FormatBytes(usage.RXBytes))
+	fmt.Printf("  %-10s %s\n", "Outbound", util.FormatBytes(usage.TXBytes))
+	fmt.Println()
+	fmt.Println(statusSection("Policy"))
+	fmt.Printf("  %-10s %s\n", "Billing", billingModeText(cfg, false))
+	fmt.Printf("  %-10s %s\n", "Decision", decisionText(decision, false))
+	if report.RemainingBytes <= cfg.AllowanceBytes/10 {
+		fmt.Printf("  %-10s %s\n", "Risk", statusWarn("remaining allowance is below 10%"))
 	}
+}
+
+func printStatusTechnicalDetails(cfg config.Config, report statusReport, recentErr error) {
+	if isZH(cfg) {
+		fmt.Println("\n技术细节：")
+		if recentErr != nil {
+			fmt.Printf("近期统计错误：%v\n", recentErr)
+		}
+		fmt.Printf("后台上次检查后：%s\n", deltaText(report.DeltaBytes, true))
+		fmt.Printf("state: level=%s limited=%v rate=%s applied=%s\n", report.State.Level, report.State.Limited, report.State.CurrentLimitRate, report.State.AppliedLimitKey)
+		for iface, tc := range report.TC {
+			fmt.Printf("tc[%s]: %s\n", iface, tc)
+		}
+		return
+	}
+	fmt.Println("\nTechnical details:")
+	if recentErr != nil {
+		fmt.Printf("Recent usage error: %v\n", recentErr)
+	}
+	fmt.Printf("Since background last check: %s\n", deltaText(report.DeltaBytes, false))
+	fmt.Printf("state: level=%s limited=%v rate=%s applied=%s\n", report.State.Level, report.State.Limited, report.State.CurrentLimitRate, report.State.AppliedLimitKey)
 	for iface, tc := range report.TC {
 		fmt.Printf("tc[%s]: %s\n", iface, tc)
 	}
-	return nil
+}
+
+func printRecentUsageDashboard(recent *traffic.RecentUsage, zh bool) {
+	if recent == nil {
+		if zh {
+			fmt.Printf("  %-8s %s\n", "今天", "暂不可用")
+			fmt.Printf("  %-8s %s\n", "昨天", "暂不可用")
+			fmt.Printf("  %-8s %s\n", "本周", "暂不可用")
+		} else {
+			fmt.Printf("  %-10s %s\n", "Today", "unavailable")
+			fmt.Printf("  %-10s %s\n", "Yesterday", "unavailable")
+			fmt.Printf("  %-10s %s\n", "This week", "unavailable")
+		}
+		return
+	}
+	if zh {
+		fmt.Printf("  %-8s %s\n", "今天", util.FormatBytes(recent.Today.BillableBytes))
+		fmt.Printf("  %-8s %s\n", "昨天", util.FormatBytes(recent.Yesterday.BillableBytes))
+		fmt.Printf("  %-8s %s  （周一开始）\n", "本周", util.FormatBytes(recent.ThisWeek.BillableBytes))
+		return
+	}
+	fmt.Printf("  %-10s %s\n", "Today", util.FormatBytes(recent.Today.BillableBytes))
+	fmt.Printf("  %-10s %s\n", "Yesterday", util.FormatBytes(recent.Yesterday.BillableBytes))
+	fmt.Printf("  %-10s %s  (starts Monday)\n", "This week", util.FormatBytes(recent.ThisWeek.BillableBytes))
+}
+
+func statusTitle(text string) string {
+	return statusColor("\033[1;36m", text)
+}
+
+func statusSection(text string) string {
+	return statusColor("\033[1m", text)
+}
+
+func statusWarn(text string) string {
+	return statusColor("\033[33m", text)
+}
+
+func statusGood(text string) string {
+	return statusColor("\033[32m", text)
+}
+
+func statusBad(text string) string {
+	return statusColor("\033[31m", text)
+}
+
+func statusColor(code string, text string) string {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" || !stdoutIsTerminal() {
+		return text
+	}
+	return code + text + "\033[0m"
+}
+
+func stdoutIsTerminal() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func progressBar(percent float64, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	filled := int(percent / 100 * float64(width))
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	if percent >= 95 {
+		return statusBad(bar)
+	}
+	if percent >= 85 {
+		return statusWarn(bar)
+	}
+	return statusGood(bar)
+}
+
+func statusBadge(state config.State, decision traffic.Decision) string {
+	if state.Limited || decision.Level == traffic.LevelHard {
+		return statusBad("●")
+	}
+	if decision.Level == traffic.LevelSoft || decision.Level == traffic.LevelWarn || decision.LimitRate != "" {
+		return statusWarn("●")
+	}
+	return statusGood("●")
+}
+
+func periodRangeText(cfg config.Config, now time.Time, zh bool) string {
+	start := traffic.CurrentPeriodStart(now, cfg.PeriodDay)
+	end := start.AddDate(0, 1, -1)
+	if !zh {
+		return fmt.Sprintf("%s to %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	}
+	return fmt.Sprintf("%s 至 %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+}
+
+func billingModeText(cfg config.Config, zh bool) string {
+	if zh {
+		if cfg.BillingMode == "outbound" {
+			return "仅出站流量"
+		}
+		return "总流量（入站 + 出站）"
+	}
+	if cfg.BillingMode == "outbound" {
+		return "outbound only"
+	}
+	return "total (inbound + outbound)"
+}
+
+func decisionText(decision traffic.Decision, zh bool) string {
+	level := levelText(decision.Level, zh)
+	if decision.LimitRate == "" {
+		if zh {
+			return level + "，无需限速"
+		}
+		return level + ", no limit needed"
+	}
+	if zh {
+		return level + "，限速 " + decision.LimitRate
+	}
+	return level + ", limit " + decision.LimitRate
+}
+
+func stateText(state config.State, decision traffic.Decision, zh bool) string {
+	level := levelText(state.Level, zh)
+	if state.Limited {
+		if state.CurrentLimitRate != "" {
+			if zh {
+				return level + "，已限速 " + state.CurrentLimitRate
+			}
+			return level + ", limited at " + state.CurrentLimitRate
+		}
+		if zh {
+			return level + "，已限速"
+		}
+		return level + ", limited"
+	}
+	if decision.LimitRate != "" {
+		if zh {
+			return level + "，即将限速 " + decision.LimitRate
+		}
+		return level + ", will limit at " + decision.LimitRate
+	}
+	if zh {
+		return level + "，未限速"
+	}
+	return level + ", not limited"
+}
+
+func levelText(level string, zh bool) string {
+	if !zh {
+		return level
+	}
+	switch level {
+	case traffic.LevelNormal:
+		return "正常"
+	case traffic.LevelWarn:
+		return "提醒"
+	case traffic.LevelSoft:
+		return "轻度限速"
+	case traffic.LevelHard:
+		return "强限速"
+	default:
+		return level
+	}
+}
+
+func deltaText(delta map[string]uint64, zh bool) string {
+	if delta["rx"] == 0 && delta["tx"] == 0 && delta["total"] == 0 {
+		if zh {
+			return "暂无新增流量"
+		}
+		return "no new traffic"
+	}
+	if zh {
+		return fmt.Sprintf("入站 +%s，出站 +%s，总计 +%s", util.FormatBytes(delta["rx"]), util.FormatBytes(delta["tx"]), util.FormatBytes(delta["total"]))
+	}
+	return fmt.Sprintf("inbound +%s, outbound +%s, total +%s", util.FormatBytes(delta["rx"]), util.FormatBytes(delta["tx"]), util.FormatBytes(delta["total"]))
 }
 
 func buildStatusReport(cfg config.Config, usage traffic.Usage, state config.State, decision traffic.Decision) statusReport {

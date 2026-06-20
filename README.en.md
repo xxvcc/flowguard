@@ -81,6 +81,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | Command | Purpose |
 | --- | --- |
 | `flowguard status` | Show current traffic, decision, and `tc` state |
+| `flowguard status --verbose` | Show raw `tc` and other technical details |
 | `flowguard status --json` | Script-friendly status output |
 | `flowguard help` | Show all commands and purposes using the configured language |
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
@@ -95,6 +96,8 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard uninstall` | Remove service, config, state, and binary |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
 | `flowguard uninstall --remove-vnstat=true` | Also remove configured interfaces from the vnStat database |
+
+`flowguard status` shows a user-facing summary by default, including today, yesterday, and this week (Monday start) billable usage; raw `tc` output is only shown with `--verbose`.
 
 ## Non-Interactive Install
 

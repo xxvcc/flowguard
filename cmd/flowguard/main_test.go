@@ -205,6 +205,31 @@ func TestHelpTextLanguages(t *testing.T) {
 	}
 }
 
+func TestStatusTextHelpers(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.PeriodDay = 18
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	if got := periodRangeText(cfg, now, true); got != "2026-06-18 至 2026-07-17" {
+		t.Fatalf("periodRangeText zh=%q", got)
+	}
+	if got := periodRangeText(cfg, now, false); got != "2026-06-18 to 2026-07-17" {
+		t.Fatalf("periodRangeText en=%q", got)
+	}
+	if got := billingModeText(cfg, true); got != "总流量（入站 + 出站）" {
+		t.Fatalf("billingModeText=%q", got)
+	}
+	cfg.BillingMode = "outbound"
+	if got := billingModeText(cfg, true); got != "仅出站流量" {
+		t.Fatalf("billingModeText outbound=%q", got)
+	}
+	if got := decisionText(traffic.Decision{Level: traffic.LevelNormal}, true); got != "正常，无需限速" {
+		t.Fatalf("decisionText=%q", got)
+	}
+	if got := deltaText(map[string]uint64{"rx": 0, "tx": 0, "total": 0}, true); got != "暂无新增流量" {
+		t.Fatalf("deltaText=%q", got)
+	}
+}
+
 func TestCmdUpgradeDryRun(t *testing.T) {
 	if err := cmdUpgrade([]string{"--dry-run", "--version", "v0.1.4", "--base-url", "https://example.com/releases", "--install-dir", t.TempDir(), "--no-restart"}); err != nil {
 		t.Fatal(err)
