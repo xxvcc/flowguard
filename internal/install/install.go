@@ -282,7 +282,7 @@ func buildConfig(opts Options, iface string) (config.Config, string, error) {
 	tr := labels(lang)
 	allowance := opts.Allowance
 	if allowance == "" {
-		allowance = util.Prompt(scanner, tr["allowance"], "1000GB")
+		allowance = withDefaultUnit(util.Prompt(scanner, tr["allowance"], "1000GB"), "GB")
 	}
 	periodDay := cfg.PeriodDay
 	if opts.PeriodDay == 0 {
@@ -305,25 +305,25 @@ func buildConfig(opts Options, iface string) (config.Config, string, error) {
 		mode := promptValueChoice(scanner, tr["initial_mode"], "none", initialModeChoices(lang))
 		switch mode {
 		case "total":
-			initialTotal = util.Prompt(scanner, tr["initial_total"], "0")
+			initialTotal = withDefaultUnit(util.Prompt(scanner, tr["initial_total"], "0"), "GB")
 		case "split":
-			initialRX = util.Prompt(scanner, tr["initial_rx"], "0")
-			initialTX = util.Prompt(scanner, tr["initial_tx"], "0")
+			initialRX = withDefaultUnit(util.Prompt(scanner, tr["initial_rx"], "0"), "GB")
+			initialTX = withDefaultUnit(util.Prompt(scanner, tr["initial_tx"], "0"), "GB")
 		}
 	}
 	if initialTotal == "" {
 		if initialRX == "" {
-			initialRX = util.Prompt(scanner, tr["initial_rx"], "0")
+			initialRX = withDefaultUnit(util.Prompt(scanner, tr["initial_rx"], "0"), "GB")
 		}
 		if initialTX == "" {
-			initialTX = util.Prompt(scanner, tr["initial_tx"], "0")
+			initialTX = withDefaultUnit(util.Prompt(scanner, tr["initial_tx"], "0"), "GB")
 		}
 	}
 	if opts.SoftRate == "" {
-		cfg.Limits.SoftRate = util.Prompt(scanner, tr["soft_rate"], cfg.Limits.SoftRate)
+		cfg.Limits.SoftRate = withDefaultUnit(util.Prompt(scanner, tr["soft_rate"], cfg.Limits.SoftRate), "mbit")
 	}
 	if opts.HardRate == "" {
-		cfg.Limits.HardRate = util.Prompt(scanner, tr["hard_rate"], cfg.Limits.HardRate)
+		cfg.Limits.HardRate = withDefaultUnit(util.Prompt(scanner, tr["hard_rate"], cfg.Limits.HardRate), "mbit")
 	}
 	check := util.Prompt(scanner, tr["check_interval"], strconv.Itoa(cfg.CheckIntervalSeconds))
 	checkSeconds, err := strconv.Atoi(check)
@@ -409,6 +409,19 @@ func initialModeChoices(lang string) []valueChoice {
 		return []valueChoice{{value: "none", label: "none"}, {value: "total", label: "total"}, {value: "split", label: "split"}}
 	}
 	return []valueChoice{{value: "none", label: "不录入"}, {value: "total", label: "录入总量"}, {value: "split", label: "入站/出站分开录入"}}
+}
+
+func withDefaultUnit(value string, unit string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return trimmed
+	}
+	for _, r := range trimmed {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			return trimmed
+		}
+	}
+	return trimmed + unit
 }
 
 func applyOptionValues(cfg config.Config, opts Options) (config.Config, error) {

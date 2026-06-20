@@ -79,3 +79,21 @@ func TestPromptBoolLocalized(t *testing.T) {
 		t.Fatal("expected Chinese no selection")
 	}
 }
+
+func TestWithDefaultUnit(t *testing.T) {
+	tests := map[string]string{
+		"1000":   "1000GB",
+		"10.5":   "10.5GB",
+		"1000GB": "1000GB",
+		" 10 ":   "10GB",
+		"0":      "0GB",
+	}
+	for input, want := range tests {
+		if got := withDefaultUnit(input, "GB"); got != want {
+			t.Fatalf("withDefaultUnit(%q)=%q, want %q", input, got, want)
+		}
+	}
+	if got := withDefaultUnit("10", "mbit"); got != "10mbit" {
+		t.Fatalf("rate default unit=%q", got)
+	}
+}
