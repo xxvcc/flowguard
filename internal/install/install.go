@@ -193,7 +193,7 @@ func printInstallSummary(cfg config.Config, lang string) {
 	fmt.Printf("  计费模式：%s\n", cfg.BillingMode)
 	fmt.Printf("  账期起始日：%d\n", cfg.PeriodDay)
 	fmt.Printf("  触发阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnPercent, cfg.Thresholds.SoftPercent, cfg.Thresholds.HardPercent)
-	fmt.Printf("  恢复阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
+	fmt.Printf("  解除/降级阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
 	fmt.Printf("  限速值：轻度 %s，强限速 %s\n", cfg.Limits.SoftRate, cfg.Limits.HardRate)
 	if cfg.Telegram.Enabled {
 		fmt.Println("  通知：Telegram")
@@ -205,15 +205,15 @@ func printInstallSummary(cfg config.Config, lang string) {
 
 func labels(lang string) map[string]string {
 	zh := map[string]string{
-		"allowance":      "月流量额度",
+		"allowance":      "月流量额度（默认单位 GB，例：1000 或 1000GB）",
 		"period_day":     "账期起始日",
 		"billing_mode":   "计费流量模式",
 		"initial_mode":   "本月已用流量录入方式",
-		"initial_total":  "本月已用总流量",
-		"initial_rx":     "本月已用入站流量",
-		"initial_tx":     "本月已用出站流量",
-		"soft_rate":      "轻度限速值",
-		"hard_rate":      "强限速值",
+		"initial_total":  "本月已用总流量（默认单位 GB）",
+		"initial_rx":     "本月已用入站流量（默认单位 GB）",
+		"initial_tx":     "本月已用出站流量（默认单位 GB）",
+		"soft_rate":      "轻度限速值（默认单位 mbit）",
+		"hard_rate":      "强限速值（默认单位 mbit）",
 		"check_interval": "检查间隔秒数",
 		"enable_tg":      "启用 Telegram 通知",
 		"tg_token":       "Telegram Bot Token",
@@ -222,15 +222,15 @@ func labels(lang string) map[string]string {
 	}
 	if lang == "en" {
 		return map[string]string{
-			"allowance":      "Monthly allowance",
+			"allowance":      "Monthly allowance (default unit GB, e.g. 1000 or 1000GB)",
 			"period_day":     "Billing period start day",
 			"billing_mode":   "Billing traffic mode",
 			"initial_mode":   "Initial usage input mode",
-			"initial_total":  "Initial total used this period",
-			"initial_rx":     "Initial inbound used this period",
-			"initial_tx":     "Initial outbound used this period",
-			"soft_rate":      "Soft limit rate",
-			"hard_rate":      "Hard limit rate",
+			"initial_total":  "Initial total used this period (default unit GB)",
+			"initial_rx":     "Initial inbound used this period (default unit GB)",
+			"initial_tx":     "Initial outbound used this period (default unit GB)",
+			"soft_rate":      "Soft limit rate (default unit mbit)",
+			"hard_rate":      "Hard limit rate (default unit mbit)",
 			"check_interval": "Check interval seconds",
 			"enable_tg":      "Enable Telegram notifications",
 			"tg_token":       "Telegram bot token",

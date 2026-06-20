@@ -97,3 +97,12 @@ func TestWithDefaultUnit(t *testing.T) {
 		t.Fatalf("rate default unit=%q", got)
 	}
 }
+
+func TestChineseLabelsIncludeUnits(t *testing.T) {
+	zh := labels("zh")
+	for _, key := range []string{"allowance", "initial_total", "initial_rx", "initial_tx", "soft_rate", "hard_rate"} {
+		if !strings.Contains(zh[key], "单位") {
+			t.Fatalf("label %s lacks unit hint: %q", key, zh[key])
+		}
+	}
+}
