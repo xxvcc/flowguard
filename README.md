@@ -83,6 +83,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard status` | 查看当前流量、决策和 `tc` 状态 |
 | `flowguard status --verbose` | 显示原始 `tc` 等技术细节 |
 | `flowguard status --json` | 输出适合脚本读取的 JSON |
+| `flowguard version` | 显示版本和提交信息 |
 | `flowguard help` | 按配置语言显示所有命令和用途 |
 | `flowguard doctor` | 检查配置、`vnStat`、`tc`、网卡和服务 |
 | `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
@@ -97,6 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard uninstall` | 卸载服务并删除配置、状态和二进制 |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | 卸载服务但保留配置、状态和二进制 |
 | `flowguard uninstall --remove-vnstat=true` | 卸载时同时移除配置网卡的 vnStat 数据 |
+| `flowguard uninstall --delete-custom-paths=true` | 允许删除非默认 `--config` / `--state` 路径 |
 
 `flowguard status` 默认显示用户摘要，并包含今天、昨天、本周（周一开始）的计费用量、本月预测和软限速 ETA；原始 `tc` 输出只在 `--verbose` 中显示。
 

@@ -83,6 +83,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard status` | Show current traffic, decision, and `tc` state |
 | `flowguard status --verbose` | Show raw `tc` and other technical details |
 | `flowguard status --json` | Script-friendly status output |
+| `flowguard version` | Show version and commit information |
 | `flowguard help` | Show all commands and purposes using the configured language |
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
@@ -97,6 +98,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard uninstall` | Remove service, config, state, and binary |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
 | `flowguard uninstall --remove-vnstat=true` | Also remove configured interfaces from the vnStat database |
+| `flowguard uninstall --delete-custom-paths=true` | Allow deleting non-default `--config` / `--state` paths |
 
 `flowguard status` shows a user-facing summary by default, including today, yesterday, this week (Monday start), a month-end estimate, and soft-limit ETA; raw `tc` output is only shown with `--verbose`.
 

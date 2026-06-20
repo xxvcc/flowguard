@@ -27,6 +27,7 @@ RestartSec=5s
 Environment=FLOWGUARD_TEST_PATH=0
 UMask=0077
 NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_ADMIN
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict

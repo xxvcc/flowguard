@@ -405,6 +405,18 @@ func ApplyLimit(iface string, rate string) error {
 	if err != nil {
 		return err
 	}
+	return applyLimitRate(iface, limitRate)
+}
+
+func ApplySplitLimit(iface string, rate string, parts int) error {
+	limitRate, err := SplitRate(rate, parts)
+	if err != nil {
+		return err
+	}
+	return applyLimitRate(iface, limitRate)
+}
+
+func applyLimitRate(iface string, limitRate string) error {
 	current, err := currentLimit(iface)
 	if err != nil {
 		return err
@@ -414,6 +426,14 @@ func ApplyLimit(iface string, rate string) error {
 	}
 	_, err = util.Run(30*time.Second, "tc", "qdisc", "replace", "dev", iface, "root", "handle", qdiscHandle, "tbf", "rate", limitRate, "burst", "32kbit", "latency", "400ms")
 	return err
+}
+
+func HasFlowGuardLimit(iface string) (bool, error) {
+	current, err := currentLimit(iface)
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(strings.TrimSpace(current), "qdisc tbf "+qdiscHandle+" "), nil
 }
 
 func canReplaceRootQdisc(current string) bool {

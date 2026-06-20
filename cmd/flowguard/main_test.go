@@ -22,8 +22,12 @@ func TestRemoveManagedFileRemovesOnlyFile(t *testing.T) {
 	if err := os.WriteFile(keep, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeManagedFile(file, file); err != nil {
+	removed, err := removeManagedFile(file, file, false)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("expected managed file removed")
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Fatalf("expected managed file removed, err=%v", err)
@@ -83,8 +87,33 @@ func TestAppliedLimitKeyIncludesInterfacesAndSplitRate(t *testing.T) {
 }
 
 func TestRemoveManagedFileRejectsRoot(t *testing.T) {
-	if err := removeManagedFile("/", "/"); err == nil {
+	if _, err := removeManagedFile("/", "/", false); err == nil {
 		t.Fatal("expected unsafe root path error")
+	}
+}
+
+func TestRemoveManagedFileSkipsCustomPathWithoutConfirmation(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "custom.json")
+	if err := os.WriteFile(file, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := removeManagedFile(file, config.DefaultConfigPath, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed {
+		t.Fatal("custom path should be skipped without confirmation")
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("custom path should remain: %v", err)
+	}
+	removed, err = removeManagedFile(file, config.DefaultConfigPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("custom path should be removed with confirmation")
 	}
 }
 
@@ -209,6 +238,7 @@ func TestFormatNotificationUsesChinese(t *testing.T) {
 func TestFormatNotificationIncludesRecentUsage(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Interface = "eth0"
+	cfg.Interfaces = []string{"eth0", "ens5"}
 	cfg.AllowanceBytes = 1000
 	cfg.Language = "zh"
 	recent := traffic.RecentUsage{
@@ -216,8 +246,17 @@ func TestFormatNotificationIncludesRecentUsage(t *testing.T) {
 		ThisWeek: traffic.UsageSummary{RXBytes: 10, TXBytes: 10, TotalBytes: 20, BillableBytes: 20},
 	}
 	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, recent, true)
-	if !strings.Contains(msg, "今日新增") || !strings.Contains(msg, "本周累计") {
+	if !strings.Contains(msg, "今日新增") || !strings.Contains(msg, "本周累计") || !strings.Contains(msg, "网卡：eth0,ens5") {
 		t.Fatalf("notification missing recent usage: %s", msg)
+	}
+}
+
+func TestVersionCommandJSON(t *testing.T) {
+	oldVersion, oldCommit := version, commit
+	version, commit = "v-test", "abc123"
+	defer func() { version, commit = oldVersion, oldCommit }()
+	if err := cmdVersion([]string{"--json"}); err != nil {
+		t.Fatal(err)
 	}
 }
 

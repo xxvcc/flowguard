@@ -19,6 +19,11 @@ import (
 	"flowguard/internal/util"
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -54,6 +59,8 @@ func main() {
 		err = cmdTestNotify(os.Args[2:])
 	case "check-once":
 		err = cmdCheckOnce(os.Args[2:])
+	case "version", "--version", "-v":
+		err = cmdVersion(os.Args[2:])
 	case "help", "--help", "-h":
 		err = cmdHelp(os.Args[2:])
 	default:
@@ -354,6 +361,7 @@ func cmdUninstall(args []string) error {
 	keepConfig := fs.Bool("keep-config", false, "keep config and state files")
 	keepBinary := fs.Bool("keep-binary", false, "keep /usr/local/bin/flowguard")
 	removeVnstat := fs.Bool("remove-vnstat", false, "remove configured interfaces from vnStat database")
+	deleteCustomPaths := fs.Bool("delete-custom-paths", false, "allow uninstall to delete non-default --config/--state paths")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -380,7 +388,11 @@ func cmdUninstall(args []string) error {
 	_, _ = util.Run(30*time.Second, "systemctl", "daemon-reload")
 	if haveConfig {
 		if err := removeLimits(cfg); err != nil {
-			return err
+			if isZH(cfg) {
+				fmt.Fprintf(os.Stderr, "限速清理警告：%v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "limit cleanup warning: %v\n", err)
+			}
 		}
 		if *removeVnstat {
 			for _, iface := range cfg.Interfaces {
@@ -389,11 +401,19 @@ func cmdUninstall(args []string) error {
 		}
 	}
 	if !*keepConfig {
-		if err := removeManagedFile(*cfgPath, config.DefaultConfigPath); err != nil {
+		removed, err := removeManagedFile(*cfgPath, config.DefaultConfigPath, *deleteCustomPaths)
+		if err != nil {
 			return err
 		}
-		if err := removeManagedFile(*statePath, config.DefaultStatePath); err != nil {
+		if !removed {
+			printSkippedCustomPath(cfg, haveConfig, *cfgPath)
+		}
+		removed, err = removeManagedFile(*statePath, config.DefaultStatePath, *deleteCustomPaths)
+		if err != nil {
 			return err
+		}
+		if !removed {
+			printSkippedCustomPath(cfg, haveConfig, *statePath)
 		}
 	}
 	if !*keepBinary {
@@ -426,23 +446,35 @@ func isZH(cfg config.Config) bool {
 	return cfg.Language == "" || cfg.Language == "zh"
 }
 
-func removeManagedFile(path string, defaultPath string) error {
+func printSkippedCustomPath(cfg config.Config, haveConfig bool, path string) {
+	if haveConfig && isZH(cfg) {
+		fmt.Fprintf(os.Stderr, "跳过非默认路径：%s（如需删除请加 --delete-custom-paths=true）\n", path)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Skipped non-default path: %s (use --delete-custom-paths=true to delete it)\n", path)
+}
+
+func removeManagedFile(path string, defaultPath string, allowCustom bool) (bool, error) {
 	if path == "" {
 		path = defaultPath
 	}
 	cleanPath := filepath.Clean(path)
 	if cleanPath == "/" || cleanPath == "." {
-		return fmt.Errorf("refusing to remove unsafe path %q", path)
+		return false, fmt.Errorf("refusing to remove unsafe path %q", path)
+	}
+	cleanDefault := filepath.Clean(defaultPath)
+	if cleanPath != cleanDefault && !allowCustom {
+		return false, nil
 	}
 	if err := os.Remove(cleanPath); err != nil && !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
-	if cleanPath == filepath.Clean(defaultPath) {
+	if cleanPath == cleanDefault {
 		if err := os.Remove(filepath.Dir(cleanPath)); err != nil && !os.IsNotExist(err) && !strings.Contains(err.Error(), "directory not empty") {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func cmdUpgrade(args []string) error {
@@ -491,6 +523,7 @@ var helpEntries = []helpEntry{
 	{"flowguard status", "查看当前流量、决策和 tc 状态", "Show current traffic, decision, and tc state"},
 	{"flowguard status --verbose", "显示原始 tc 等技术细节", "Show raw tc and other technical details"},
 	{"flowguard status --json", "输出适合脚本读取的 JSON", "Print script-friendly JSON status"},
+	{"flowguard version", "显示版本和提交信息", "Show version and commit information"},
 	{"flowguard doctor", "检查配置、vnStat、tc、网卡和服务", "Diagnose config, vnStat, tc, interfaces, and service"},
 	{"flowguard modify --allowance 1000GB", "修改配置并自动备份", "Update config with automatic backup"},
 	{"flowguard modify --language zh", "切换后续命令和通知输出语言", "Switch later command and notification output language"},
@@ -570,7 +603,13 @@ func cmdRollback(args []string) error {
 		return err
 	}
 	if *cfgPath == config.DefaultConfigPath {
-		_ = service.Restart()
+		if err := service.Restart(); err != nil {
+			if isZH(cfg) {
+				fmt.Fprintf(os.Stderr, "服务重启警告：%v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "service restart warning: %v\n", err)
+			}
+		}
 	}
 	if isZH(cfg) {
 		fmt.Printf("已将 %s 回滚到备份 %s\n", *cfgPath, backup)
@@ -1415,6 +1454,25 @@ func cmdCheckOnce(args []string) error {
 	return evaluateOnce(cfg, statePath, true)
 }
 
+func cmdVersion(args []string) error {
+	fs := flag.NewFlagSet("version", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "print version as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	info := map[string]string{"version": version, "commit": commit}
+	if *jsonOutput {
+		data, err := json.MarshalIndent(info, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	fmt.Printf("flowguard %s (%s)\n", version, commit)
+	return nil
+}
+
 func pathsFromFlags(name string, args []string) (string, string, error) {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	configPath := fs.String("config", config.DefaultConfigPath, "config path")
@@ -1468,7 +1526,15 @@ func evaluateOnce(cfg config.Config, statePath string, sendNotifications bool) e
 	if err != nil {
 		return err
 	}
-	if decision.LimitRate != "" && (!state.Limited || desiredLimitKey != state.AppliedLimitKey) {
+	limitMissing := false
+	if decision.LimitRate != "" && state.Limited && desiredLimitKey == state.AppliedLimitKey {
+		missing, err := anyFlowGuardLimitMissing(cfg)
+		if err != nil {
+			return err
+		}
+		limitMissing = missing
+	}
+	if decision.LimitRate != "" && (!state.Limited || desiredLimitKey != state.AppliedLimitKey || limitMissing) {
 		if err := applyLimits(cfg, decision.LimitRate); err != nil {
 			if notifyErr := sendErrorNotification(cfg, statePath, state, "tc", "FlowGuard: tc limit failed: "+err.Error(), sendNotifications); notifyErr != nil {
 				if sendNotifications {
@@ -1539,13 +1605,9 @@ func clearErrorCooldown(state *config.State) {
 }
 
 func applyLimits(cfg config.Config, rate string) error {
-	limitRate, err := traffic.SplitRate(rate, len(cfg.Interfaces))
-	if err != nil {
-		return err
-	}
 	var applied []string
 	for _, iface := range cfg.Interfaces {
-		if err := traffic.ApplyLimit(iface, limitRate); err != nil {
+		if err := traffic.ApplySplitLimit(iface, rate, len(cfg.Interfaces)); err != nil {
 			for _, appliedIface := range applied {
 				_ = traffic.RemoveLimit(appliedIface)
 			}
@@ -1554,6 +1616,19 @@ func applyLimits(cfg config.Config, rate string) error {
 		applied = append(applied, iface)
 	}
 	return nil
+}
+
+func anyFlowGuardLimitMissing(cfg config.Config) (bool, error) {
+	for _, iface := range cfg.Interfaces {
+		present, err := traffic.HasFlowGuardLimit(iface)
+		if err != nil {
+			return false, err
+		}
+		if !present {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func appliedLimitKey(cfg config.Config, rate string) (string, error) {
@@ -1613,7 +1688,7 @@ func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic
 	var b strings.Builder
 	if isZH(cfg) {
 		fmt.Fprintf(&b, "FlowGuard：%s\n\n", decision.Level)
-		fmt.Fprintf(&b, "网卡：%s\n", cfg.Interface)
+		fmt.Fprintf(&b, "网卡：%s\n", interfaceListText(cfg))
 		fmt.Fprintf(&b, "流量额度：%s\n", util.FormatBytes(cfg.AllowanceBytes))
 		fmt.Fprintf(&b, "计费模式：%s\n", cfg.BillingMode)
 		fmt.Fprintf(&b, "计费用量：%s / %s (%.2f%%)\n", util.FormatBytes(usage.BillableBytes), util.FormatBytes(cfg.AllowanceBytes), usage.Percent)
@@ -1642,7 +1717,7 @@ func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic
 		return b.String()
 	}
 	fmt.Fprintf(&b, "FlowGuard: %s\n\n", decision.Level)
-	fmt.Fprintf(&b, "Interface: %s\n", cfg.Interface)
+	fmt.Fprintf(&b, "Interfaces: %s\n", interfaceListText(cfg))
 	fmt.Fprintf(&b, "Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))
 	fmt.Fprintf(&b, "Billing mode: %s\n", cfg.BillingMode)
 	fmt.Fprintf(&b, "Billable: %s / %s (%.2f%%)\n", util.FormatBytes(usage.BillableBytes), util.FormatBytes(cfg.AllowanceBytes), usage.Percent)
@@ -1669,4 +1744,11 @@ func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic
 		fmt.Fprintf(&b, "Limit: none\n")
 	}
 	return b.String()
+}
+
+func interfaceListText(cfg config.Config) string {
+	if len(cfg.Interfaces) > 0 {
+		return strings.Join(cfg.Interfaces, ",")
+	}
+	return cfg.Interface
 }

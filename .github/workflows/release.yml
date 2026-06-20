@@ -29,13 +29,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist build
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          LDFLAGS="-s -w -X main.version=${GITHUB_REF_NAME} -X main.commit=${GITHUB_SHA}"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_amd64.tar.gz flowguard
           rm -f build/flowguard
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_arm64.tar.gz flowguard
           rm -f build/flowguard
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="$LDFLAGS" -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_armv7.tar.gz flowguard
           (cd dist && sha256sum flowguard_*.tar.gz > checksums.txt)
       - name: Publish GitHub release
