@@ -33,6 +33,15 @@ func TestNormalizeInterfacesTrimsAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestNormalizeDefaultsSchemaVersion(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SchemaVersion = 0
+	cfg.Normalize()
+	if cfg.SchemaVersion != ConfigSchemaVersion {
+		t.Fatalf("schema_version=%d", cfg.SchemaVersion)
+	}
+}
+
 func TestValidateRejectsInvalidThresholds(t *testing.T) {
 	tests := []func(*Config){
 		func(cfg *Config) { cfg.Thresholds.HardPercent = 101 },

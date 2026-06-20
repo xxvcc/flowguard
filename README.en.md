@@ -80,6 +80,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 
 | Command | Purpose |
 | --- | --- |
+| `flowguard install` | Install dependencies, write config, and install systemd service |
 | `flowguard status` | Show current traffic, decision, and `tc` state |
 | `flowguard status --verbose` | Show raw `tc` and other technical details |
 | `flowguard status --json` | Script-friendly status output |
@@ -87,18 +88,23 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard help` | Show all commands and purposes using the configured language |
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
-| `flowguard modify --language en` | Switch later command and notification output language |
+| `flowguard modify --language zh|en` | Switch later command and notification output language |
 | `flowguard modify --reset-recent-baseline` | Run once after upgrading to recapture today/this-week baselines |
 | `flowguard topup 100GB` | Add purchased traffic allowance, then immediately recheck/unlimit |
 | `flowguard topup 100` | Same as above; bare numbers default to `GB` |
 | `flowguard rollback` | Restore latest config backup |
 | `flowguard upgrade` | Download, verify, and upgrade to the latest Release |
 | `flowguard upgrade --version vX.Y.Z` | Upgrade to a specific version |
+| `flowguard upgrade --no-restart` | Replace the binary without restarting the service |
 | `flowguard test-notify` | Send a Telegram test notification |
+| `flowguard check-once` | Run one check, useful for debugging or cron |
+| `flowguard limit` | Apply the configured hard limit to all interfaces |
+| `flowguard unlimit` | Remove FlowGuard-managed limits |
 | `flowguard uninstall` | Remove service, config, state, and binary |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
 | `flowguard uninstall --remove-vnstat=true` | Also remove configured interfaces from the vnStat database |
 | `flowguard uninstall --delete-custom-paths=true` | Allow deleting non-default `--config` / `--state` paths |
+| `flowguard config-example` | Print example config JSON |
 
 `flowguard status` shows a user-facing summary by default, including today, yesterday, this week (Monday start), a month-end estimate, and soft-limit ETA; raw `tc` output is only shown with `--verbose`.
 
@@ -111,6 +117,7 @@ FlowGuard reports usage with two consistent rules so pre-install vnStat history 
 - Traffic that occurred before FlowGuard was installed is excluded from FlowGuard accounting.
 - When `recent_usage_available=false`, vnStat lacks daily data; recent fields are zero and period total is unaffected.
 - `recent_usage.this_week_window_days` is the number of days covered by this-week usage; after recapturing a recent baseline, forecasts average from the baseline date.
+- Config files and `status --json` include `schema_version` so future scripts can detect structural versions.
 - Existing installs upgrading to `v0.1.13+` should run `sudo flowguard modify --reset-recent-baseline` once so today/this-week stop including pre-install daily traffic.
 
 ## Non-Interactive Install

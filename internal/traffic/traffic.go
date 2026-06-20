@@ -44,6 +44,10 @@ type RecentUsage struct {
 	ThisWeekWindowDays int          `json:"this_week_window_days"`
 }
 
+type Snapshot struct {
+	data vnstatJSON
+}
+
 type Decision struct {
 	Level     string `json:"level"`
 	LimitRate string `json:"limit_rate"`
@@ -100,19 +104,31 @@ func CurrentPeriodStart(now time.Time, periodDay int) time.Time {
 }
 
 func ReadUsage(cfg config.Config, now time.Time) (Usage, error) {
-	result, err := util.Run(30*time.Second, "vnstat", "--json")
+	snapshot, err := ReadSnapshot()
 	if err != nil {
 		return Usage{}, err
 	}
+	return snapshot.Usage(cfg, now)
+}
+
+func ReadSnapshot() (Snapshot, error) {
+	result, err := util.Run(30*time.Second, "vnstat", "--json")
+	if err != nil {
+		return Snapshot{}, err
+	}
 	var parsed vnstatJSON
 	if err := json.Unmarshal([]byte(result.Stdout), &parsed); err != nil {
-		return Usage{}, err
+		return Snapshot{}, err
 	}
+	return Snapshot{data: parsed}, nil
+}
+
+func (s Snapshot) Usage(cfg config.Config, now time.Time) (Usage, error) {
 	period := CurrentPeriod(now, cfg.PeriodDay)
 	var rx uint64
 	var tx uint64
 	for _, iface := range cfg.Interfaces {
-		ifaceRX, ifaceTX, err := findUsage(parsed, iface, period, CurrentPeriodStart(now, cfg.PeriodDay), now, cfg.PeriodDay)
+		ifaceRX, ifaceTX, err := findUsage(s.data, iface, period, CurrentPeriodStart(now, cfg.PeriodDay), now, cfg.PeriodDay)
 		if err != nil {
 			return Usage{}, err
 		}
@@ -142,7 +158,15 @@ func ReadUsage(cfg config.Config, now time.Time) (Usage, error) {
 }
 
 func ReadRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
-	raw, err := readRawRecentUsage(cfg, now)
+	snapshot, err := ReadSnapshot()
+	if err != nil {
+		return RecentUsage{}, err
+	}
+	return snapshot.RecentUsage(cfg, now)
+}
+
+func (s Snapshot) RecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
+	raw, err := s.RawRecentUsage(cfg, now)
 	if err != nil {
 		return RecentUsage{}, err
 	}
@@ -167,30 +191,26 @@ func ReadRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
 // subtracting any FlowGuard install baseline; intended for capturing a fresh
 // baseline (e.g. modify --reset-recent-baseline) or for diagnostics.
 func ReadRawRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
-	return readRawRecentUsage(cfg, now)
-}
-
-func readRawRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
-	result, err := util.Run(30*time.Second, "vnstat", "--json")
+	snapshot, err := ReadSnapshot()
 	if err != nil {
 		return RecentUsage{}, err
 	}
-	var parsed vnstatJSON
-	if err := json.Unmarshal([]byte(result.Stdout), &parsed); err != nil {
-		return RecentUsage{}, err
-	}
+	return snapshot.RawRecentUsage(cfg, now)
+}
+
+func (s Snapshot) RawRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
 	today := dateOnly(now)
 	yesterday := today.AddDate(0, 0, -1)
 	weekStart := today.AddDate(0, 0, -daysSinceMonday(today))
-	todayRX, todayTX, err := sumInterfaceDays(parsed, cfg.Interfaces, today, today)
+	todayRX, todayTX, err := sumInterfaceDays(s.data, cfg.Interfaces, today, today)
 	if err != nil {
 		return RecentUsage{}, err
 	}
-	yesterdayRX, yesterdayTX, err := sumInterfaceDays(parsed, cfg.Interfaces, yesterday, yesterday)
+	yesterdayRX, yesterdayTX, err := sumInterfaceDays(s.data, cfg.Interfaces, yesterday, yesterday)
 	if err != nil {
 		return RecentUsage{}, err
 	}
-	weekRX, weekTX, err := sumInterfaceDays(parsed, cfg.Interfaces, weekStart, today)
+	weekRX, weekTX, err := sumInterfaceDays(s.data, cfg.Interfaces, weekStart, today)
 	if err != nil {
 		return RecentUsage{}, err
 	}

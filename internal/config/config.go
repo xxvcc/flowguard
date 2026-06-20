@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	DefaultConfigPath = "/etc/flowguard/config.json"
-	DefaultStatePath  = "/var/lib/flowguard/state.json"
-	LevelNormal       = "normal"
-	LevelWarn         = "warn"
-	LevelSoft         = "soft_limit"
-	LevelHard         = "hard_limit"
+	DefaultConfigPath   = "/etc/flowguard/config.json"
+	DefaultStatePath    = "/var/lib/flowguard/state.json"
+	ConfigSchemaVersion = 1
+	LevelNormal         = "normal"
+	LevelWarn           = "warn"
+	LevelSoft           = "soft_limit"
+	LevelHard           = "hard_limit"
 )
 
 var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
@@ -28,6 +29,7 @@ func ValidInterfaceName(iface string) bool {
 }
 
 type Config struct {
+	SchemaVersion        int        `json:"schema_version"`
 	Interface            string     `json:"interface"`
 	Interfaces           []string   `json:"interfaces"`
 	AllowanceBytes       uint64     `json:"allowance_bytes"`
@@ -95,6 +97,7 @@ type State struct {
 
 func DefaultConfig() Config {
 	return Config{
+		SchemaVersion:        ConfigSchemaVersion,
 		PeriodDay:            1,
 		Language:             "zh",
 		BillingMode:          "total",
@@ -167,6 +170,9 @@ func applyMissingThresholdDefaults(data []byte, cfg *Config) {
 }
 
 func (c *Config) Normalize() {
+	if c.SchemaVersion == 0 {
+		c.SchemaVersion = ConfigSchemaVersion
+	}
 	if c.BillingMode == "" {
 		c.BillingMode = "total"
 	}

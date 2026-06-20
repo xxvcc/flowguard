@@ -11,14 +11,41 @@ import (
 )
 
 type Notifier struct {
-	Config config.Config
+	Config  config.Config
+	Senders []Sender
+}
+
+type Sender interface {
+	Send(text string) error
+}
+
+type TelegramSender struct {
+	Config config.Telegram
+}
+
+func New(cfg config.Config) Notifier {
+	var senders []Sender
+	if cfg.Telegram.Enabled {
+		senders = append(senders, TelegramSender{Config: cfg.Telegram})
+	}
+	return Notifier{Config: cfg, Senders: senders}
 }
 
 func (n Notifier) Send(text string) error {
-	if !n.Config.Telegram.Enabled {
-		return nil
+	senders := n.Senders
+	if senders == nil {
+		senders = New(n.Config).Senders
 	}
-	return sendTelegram(n.Config.Telegram, text)
+	for _, sender := range senders {
+		if err := sender.Send(text); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s TelegramSender) Send(text string) error {
+	return sendTelegram(s.Config, text)
 }
 
 func sendTelegram(cfg config.Telegram, text string) error {

@@ -158,7 +158,7 @@ func Run(opts Options) error {
 	}
 
 	if cfg.Telegram.Enabled {
-		n := notify.Notifier{Config: cfg}
+		n := notify.New(cfg)
 		if err := n.Send("FlowGuard installed and notification test succeeded."); err != nil {
 			fmt.Printf("Warning: Telegram test failed: %v\n", err)
 		} else {
@@ -483,16 +483,27 @@ func setInstallBaseline(cfg *config.Config) error {
 	now := time.Now()
 	var lastErr error
 	for attempt := 1; attempt <= 6; attempt++ {
-		usage, err := traffic.ReadUsage(baselineConfig, now)
+		snapshot, err := traffic.ReadSnapshot()
+		if err != nil {
+			lastErr = err
+			if attempt < 6 {
+				fmt.Printf("Waiting for vnStat baseline data (%d/6): %v\n", attempt, err)
+				time.Sleep(10 * time.Second)
+			}
+			continue
+		}
+		usage, err := snapshot.Usage(baselineConfig, now)
 		if err == nil {
 			cfg.BaselineRXBytes = usage.RXBytes
 			cfg.BaselineTXBytes = usage.TXBytes
 			cfg.BaselineAt = now.Format("2006-01-02")
-			if recent, recentErr := traffic.ReadRawRecentUsage(baselineConfig, now); recentErr == nil {
+			if recent, recentErr := snapshot.RawRecentUsage(baselineConfig, now); recentErr == nil {
 				cfg.BaselineDayRXBytes = recent.Today.RXBytes
 				cfg.BaselineDayTXBytes = recent.Today.TXBytes
 				cfg.BaselineWeekRXBytes = recent.ThisWeek.RXBytes
 				cfg.BaselineWeekTXBytes = recent.ThisWeek.TXBytes
+			} else {
+				fmt.Printf("Warning: recent baseline unavailable: %v\n", recentErr)
 			}
 			return nil
 		}
