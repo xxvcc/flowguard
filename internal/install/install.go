@@ -177,7 +177,6 @@ func printInstallSummary(cfg config.Config, lang string) {
 		fmt.Printf("  Billing mode: %s\n", cfg.BillingMode)
 		fmt.Printf("  Billing period day: %d\n", cfg.PeriodDay)
 		fmt.Printf("  Thresholds: warn %.1f%%, soft %.1f%%, hard %.1f%%\n", cfg.Thresholds.WarnPercent, cfg.Thresholds.SoftPercent, cfg.Thresholds.HardPercent)
-		fmt.Printf("  Clear thresholds: warn %.1f%%, soft %.1f%%, hard %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
 		fmt.Printf("  Limits: soft %s, hard %s\n", cfg.Limits.SoftRate, cfg.Limits.HardRate)
 		if cfg.Telegram.Enabled {
 			fmt.Println("  Notify: telegram")
@@ -193,7 +192,6 @@ func printInstallSummary(cfg config.Config, lang string) {
 	fmt.Printf("  计费模式：%s\n", cfg.BillingMode)
 	fmt.Printf("  账期起始日：%d\n", cfg.PeriodDay)
 	fmt.Printf("  触发阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnPercent, cfg.Thresholds.SoftPercent, cfg.Thresholds.HardPercent)
-	fmt.Printf("  解除/降级阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
 	fmt.Printf("  限速值：轻度 %s，强限速 %s\n", cfg.Limits.SoftRate, cfg.Limits.HardRate)
 	if cfg.Telegram.Enabled {
 		fmt.Println("  通知：Telegram")
