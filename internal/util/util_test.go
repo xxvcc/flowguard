@@ -33,7 +33,7 @@ func TestParseBytes(t *testing.T) {
 }
 
 func TestParseBytesRejectsInvalid(t *testing.T) {
-	for _, input := range []string{"abc", "-1GB"} {
+	for _, input := range []string{"abc", "-1GB", "1e309GB", "999999999999999999999999999999999999999999999999999999GB"} {
 		if _, err := ParseBytes(input); err == nil {
 			t.Fatalf("ParseBytes(%q) expected error", input)
 		}

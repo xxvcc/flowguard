@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,9 +14,17 @@ import (
 const (
 	DefaultConfigPath = "/etc/flowguard/config.json"
 	DefaultStatePath  = "/var/lib/flowguard/state.json"
+	LevelNormal       = "normal"
+	LevelWarn         = "warn"
+	LevelSoft         = "soft_limit"
+	LevelHard         = "hard_limit"
 )
 
 var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
+
+func ValidInterfaceName(iface string) bool {
+	return iface != "" && interfaceNamePattern.MatchString(iface)
+}
 
 type Config struct {
 	Interface            string     `json:"interface"`
@@ -27,6 +36,8 @@ type Config struct {
 	InitialPeriod        string     `json:"initial_period"`
 	InitialRXBytes       uint64     `json:"initial_rx_bytes"`
 	InitialTXBytes       uint64     `json:"initial_tx_bytes"`
+	BaselineRXBytes      uint64     `json:"baseline_rx_bytes,omitempty"`
+	BaselineTXBytes      uint64     `json:"baseline_tx_bytes,omitempty"`
 	Thresholds           Thresholds `json:"thresholds"`
 	Limits               Limits     `json:"limits"`
 	Safety               Safety     `json:"safety"`
@@ -61,12 +72,16 @@ type State struct {
 	Period            string `json:"period"`
 	Level             string `json:"level"`
 	LastNotifiedLevel string `json:"last_notified_level"`
+	LastNotifiedKey   string `json:"last_notified_key,omitempty"`
 	Limited           bool   `json:"limited"`
 	CurrentLimitRate  string `json:"current_limit_rate"`
+	AppliedLimitKey   string `json:"applied_limit_key,omitempty"`
 	LastRXBytes       uint64 `json:"last_rx_bytes"`
 	LastTXBytes       uint64 `json:"last_tx_bytes"`
 	LastTotalBytes    uint64 `json:"last_total_bytes"`
 	LastBillableBytes uint64 `json:"last_billable_bytes"`
+	LastErrorKey      string `json:"last_error_key,omitempty"`
+	LastErrorAt       string `json:"last_error_at,omitempty"`
 	FirstLimitSeen    bool   `json:"first_limit_seen"`
 	UpdatedAt         string `json:"updated_at"`
 }
@@ -95,8 +110,8 @@ func DefaultConfig() Config {
 func DefaultState(period string) State {
 	return State{
 		Period:            period,
-		Level:             "normal",
-		LastNotifiedLevel: "normal",
+		Level:             LevelNormal,
+		LastNotifiedLevel: LevelNormal,
 		UpdatedAt:         time.Now().Format(time.RFC3339),
 	}
 }
@@ -163,8 +178,11 @@ func (c Config) Validate() error {
 	if c.Interface == "" && len(c.Interfaces) == 0 {
 		return errors.New("interface or interfaces is required")
 	}
+	if c.Interface != "" && !ValidInterfaceName(c.Interface) {
+		return fmt.Errorf("invalid interface name %q", c.Interface)
+	}
 	for _, iface := range c.Interfaces {
-		if iface == "" || !interfaceNamePattern.MatchString(iface) {
+		if !ValidInterfaceName(iface) {
 			return fmt.Errorf("invalid interface name %q", iface)
 		}
 	}
@@ -180,11 +198,11 @@ func (c Config) Validate() error {
 	if c.CheckIntervalSeconds < 10 {
 		return errors.New("check_interval_seconds must be >= 10")
 	}
-	if c.Thresholds.WarnPercent <= 0 || c.Thresholds.SoftPercent <= c.Thresholds.WarnPercent || c.Thresholds.HardPercent <= c.Thresholds.SoftPercent {
-		return errors.New("thresholds must satisfy 0 < warn < soft < hard")
+	if !validPercent(c.Thresholds.WarnPercent) || !validPercent(c.Thresholds.SoftPercent) || !validPercent(c.Thresholds.HardPercent) || c.Thresholds.SoftPercent <= c.Thresholds.WarnPercent || c.Thresholds.HardPercent <= c.Thresholds.SoftPercent {
+		return errors.New("thresholds must satisfy 0 < warn < soft < hard <= 100")
 	}
-	if c.Thresholds.WarnClearPercent > c.Thresholds.WarnPercent || c.Thresholds.SoftClearPercent > c.Thresholds.SoftPercent || c.Thresholds.HardClearPercent > c.Thresholds.HardPercent {
-		return errors.New("clear thresholds must be <= matching trigger thresholds")
+	if !validClearPercent(c.Thresholds.WarnClearPercent) || !validClearPercent(c.Thresholds.SoftClearPercent) || !validClearPercent(c.Thresholds.HardClearPercent) || c.Thresholds.WarnClearPercent > c.Thresholds.WarnPercent || c.Thresholds.SoftClearPercent > c.Thresholds.SoftPercent || c.Thresholds.HardClearPercent > c.Thresholds.HardPercent {
+		return errors.New("clear thresholds must be finite percentages between 0 and their matching trigger thresholds")
 	}
 	if c.Limits.SoftRate == "" || c.Limits.HardRate == "" {
 		return errors.New("soft_rate and hard_rate are required")
@@ -193,6 +211,14 @@ func (c Config) Validate() error {
 		return errors.New("telegram bot_token and chat_id are required when telegram is enabled")
 	}
 	return nil
+}
+
+func validPercent(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value > 0 && value <= 100
+}
+
+func validClearPercent(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 100
 }
 
 func Save(path string, cfg Config) error {
@@ -242,13 +268,22 @@ func LoadState(path string, period string) (State, error) {
 	if state.Period == "" {
 		state.Period = period
 	}
-	if state.Level == "" {
-		state.Level = "normal"
+	if !validLevel(state.Level) {
+		state.Level = LevelNormal
 	}
-	if state.LastNotifiedLevel == "" {
-		state.LastNotifiedLevel = "normal"
+	if !validLevel(state.LastNotifiedLevel) {
+		state.LastNotifiedLevel = LevelNormal
 	}
 	return state, nil
+}
+
+func validLevel(level string) bool {
+	switch level {
+	case LevelNormal, LevelWarn, LevelSoft, LevelHard:
+		return true
+	default:
+		return false
+	}
 }
 
 func SaveState(path string, state State) error {
@@ -268,9 +303,39 @@ func writeJSONAtomic(path string, value any, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	return syncDir(dir)
+}
+
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

@@ -3,6 +3,8 @@ package traffic
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ const (
 	LevelWarn   = "warn"
 	LevelSoft   = "soft_limit"
 	LevelHard   = "hard_limit"
+	qdiscHandle = "10f1:"
 )
 
 type Usage struct {
@@ -103,6 +106,8 @@ func ReadUsage(cfg config.Config, now time.Time) (Usage, error) {
 		tx = saturatingAdd(tx, ifaceTX)
 	}
 	if cfg.InitialPeriod == period {
+		rx = saturatingSubtract(rx, cfg.BaselineRXBytes)
+		tx = saturatingSubtract(tx, cfg.BaselineTXBytes)
 		rx = saturatingAdd(rx, cfg.InitialRXBytes)
 		tx = saturatingAdd(tx, cfg.InitialTXBytes)
 	}
@@ -129,6 +134,13 @@ func saturatingAdd(left uint64, right uint64) uint64 {
 	return left + right
 }
 
+func saturatingSubtract(left uint64, right uint64) uint64 {
+	if right > left {
+		return 0
+	}
+	return left - right
+}
+
 func findUsage(data vnstatJSON, iface string, period string, start time.Time, now time.Time, periodDay int) (uint64, uint64, error) {
 	for _, item := range data.Interfaces {
 		if item.Name != iface {
@@ -143,7 +155,7 @@ func findUsage(data vnstatJSON, iface string, period string, start time.Time, no
 				return month.RX, month.TX, nil
 			}
 		}
-		return item.Traffic.Total.RX, item.Traffic.Total.TX, nil
+		return 0, 0, fmt.Errorf("vnStat monthly data for %s is missing on interface %q", period, iface)
 	}
 	return 0, 0, fmt.Errorf("interface %q not found in vnstat output", iface)
 }
@@ -195,19 +207,89 @@ func decideAt(cfg config.Config, percent float64, currentLevel string) Decision 
 }
 
 func ApplyLimit(iface string, rate string) error {
-	if strings.TrimSpace(rate) == "" {
-		return fmt.Errorf("rate is required")
+	limitRate, err := SplitRate(rate, 1)
+	if err != nil {
+		return err
 	}
-	_, err := util.Run(30*time.Second, "tc", "qdisc", "replace", "dev", iface, "root", "tbf", "rate", rate, "burst", "32kbit", "latency", "400ms")
+	current, err := currentLimit(iface)
+	if err != nil {
+		return err
+	}
+	if !canReplaceRootQdisc(current) {
+		return fmt.Errorf("refusing to replace unmanaged root qdisc on %s: %s", iface, current)
+	}
+	_, err = util.Run(30*time.Second, "tc", "qdisc", "replace", "dev", iface, "root", "handle", qdiscHandle, "tbf", "rate", limitRate, "burst", "32kbit", "latency", "400ms")
 	return err
 }
 
+func canReplaceRootQdisc(current string) bool {
+	current = strings.TrimSpace(current)
+	if current == "" {
+		return true
+	}
+	if strings.HasPrefix(current, "qdisc tbf "+qdiscHandle+" ") {
+		return true
+	}
+	for _, prefix := range []string{
+		"qdisc noqueue ",
+		"qdisc pfifo_fast ",
+		"qdisc fq_codel ",
+		"qdisc fq ",
+		"qdisc mq ",
+	} {
+		if strings.HasPrefix(current, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func SplitRate(rate string, parts int) (string, error) {
+	if parts < 1 {
+		parts = 1
+	}
+	trimmed := strings.TrimSpace(strings.ToLower(rate))
+	if trimmed == "" {
+		return "", fmt.Errorf("rate is required")
+	}
+	units := []struct {
+		suffix string
+		mult   float64
+	}{
+		{"gbit", 1000 * 1000 * 1000},
+		{"mbit", 1000 * 1000},
+		{"kbit", 1000},
+		{"bit", 1},
+	}
+	for _, unit := range units {
+		if strings.HasSuffix(trimmed, unit.suffix) {
+			number := strings.TrimSpace(strings.TrimSuffix(trimmed, unit.suffix))
+			value, err := strconv.ParseFloat(number, 64)
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+				return "", fmt.Errorf("invalid rate %q", rate)
+			}
+			bitsPerSecond := value * unit.mult / float64(parts)
+			if math.IsNaN(bitsPerSecond) || math.IsInf(bitsPerSecond, 0) || bitsPerSecond > float64(^uint64(0)) {
+				return "", fmt.Errorf("rate %q is too large", rate)
+			}
+			if bitsPerSecond < 1 {
+				bitsPerSecond = 1
+			}
+			return fmt.Sprintf("%dbit", uint64(math.Ceil(bitsPerSecond))), nil
+		}
+	}
+	return "", fmt.Errorf("cannot split unsupported rate %q; use bit/kbit/mbit/gbit", rate)
+}
+
 func RemoveLimit(iface string) error {
-	current := CurrentLimit(iface)
-	if current != "unknown" && !strings.HasPrefix(current, "qdisc tbf ") {
+	current, err := currentLimit(iface)
+	if err != nil {
+		return fmt.Errorf("tc status unknown for %s; refusing to remove qdisc: %w", iface, err)
+	}
+	if !strings.HasPrefix(current, "qdisc tbf "+qdiscHandle+" ") {
 		return nil
 	}
-	_, err := util.Run(30*time.Second, "tc", "qdisc", "del", "dev", iface, "root")
+	_, err = util.Run(30*time.Second, "tc", "qdisc", "del", "dev", iface, "root")
 	if err != nil && (strings.Contains(err.Error(), "No such file") || strings.Contains(err.Error(), "Invalid argument") || strings.Contains(err.Error(), "Cannot delete")) {
 		return nil
 	}
@@ -215,11 +297,19 @@ func RemoveLimit(iface string) error {
 }
 
 func CurrentLimit(iface string) string {
-	result, err := util.Run(30*time.Second, "tc", "qdisc", "show", "dev", iface)
+	current, err := currentLimit(iface)
 	if err != nil {
 		return "unknown"
 	}
-	return strings.TrimSpace(result.Stdout)
+	return current
+}
+
+func currentLimit(iface string) (string, error) {
+	result, err := util.Run(30*time.Second, "tc", "qdisc", "show", "dev", iface)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Stdout), nil
 }
 
 func UpdateState(state config.State, usage Usage, decision Decision) config.State {

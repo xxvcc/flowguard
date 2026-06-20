@@ -28,6 +28,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 
 安装脚本会下载最新 GitHub Release，校验 `checksums.txt`，安装 `flowguard` 二进制，安装依赖，并启动安装向导。
 
+> 安全提示：`curl | sudo sh` 适合全新自管 VPS 的快速安装。生产环境建议先下载并审阅脚本，或固定 `FLOWGUARD_VERSION=vX.Y.Z` 后安装；使用 `FLOWGUARD_BASE_URL` 镜像时，请只使用你信任的发布源。
+
 > VPS 上运行 FlowGuard **不需要 Go 环境**。只有从源码编译时才需要 Go。
 
 ## TUI 预览
@@ -61,6 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 - 支持账期起始日：`1-28`
 - 支持安装时录入本月已用流量：不填 / 总量 / 分项
 - 支持多网卡：`eth0,ens5` 或 `auto-public`
+- 多网卡限速按总限速值平分到每个接口
 - 恢复阈值防抖，避免反复限速/解限
 - 首次限速保护：第一次触发只提醒，不立刻执行 `tc`
 - Telegram 通知
@@ -79,6 +82,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard doctor` | 检查配置、`vnStat`、`tc`、网卡和服务 |
 | `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
 | `flowguard rollback` | 回滚到最近一次配置备份 |
+| `flowguard upgrade` | 下载、校验并升级到最新 Release |
+| `flowguard upgrade --version v0.1.4` | 升级到指定版本 |
 | `flowguard test-notify` | 发送 Telegram 测试通知 |
 | `flowguard uninstall` | 卸载服务并删除配置、状态和二进制 |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | 卸载服务但保留配置、状态和二进制 |
@@ -144,6 +149,22 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
   sudo env FLOWGUARD_BASE_URL=https://example.com/flowguard/releases/latest sh
 ```
 
+只升级二进制、跳过安装向导：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
+  sudo env FLOWGUARD_SKIP_SETUP=1 sh
+```
+
+已安装后也可以直接使用内置升级命令：
+
+```bash
+sudo flowguard upgrade
+sudo flowguard upgrade --version v0.1.4
+```
+
+升级只替换二进制并重启服务，不修改 `/etc/flowguard/config.json` 和 `/var/lib/flowguard/state.json`。
+
 ## 配置文件
 
 默认路径：`/etc/flowguard/config.json`
@@ -159,6 +180,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
   "initial_period": "2026-06",
   "initial_rx_bytes": 0,
   "initial_tx_bytes": 0,
+  "baseline_rx_bytes": 0,
+  "baseline_tx_bytes": 0,
   "thresholds": {
     "warn_percent": 70,
     "soft_percent": 85,
@@ -188,8 +211,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 - `period_day=1` 使用 `vnStat` 月统计；其他起始日通过 `vnStat` 日统计累加。
 - 如果服务商内网免费且内网有独立网卡，只监控公网网卡即可。
 - 如果公网/内网共用同一网卡，`vnStat` 无法区分，需要未来增加 nftables 统计模式。
-- `flowguard limit` 会把网卡 root qdisc 替换成 `tbf`，不要和其他 root `tc` 限速器共用。
-- `flowguard unlimit` 只会在当前 root qdisc 是 `tbf` 时删除，避免误删默认 `mq/fq_codel`。
+- `flowguard limit` 会把网卡 root qdisc 替换成 FlowGuard 管理的 `tbf`（handle `10f1:`），不要和其他 root `tc` 限速器共用。
+- `flowguard unlimit` 只会在当前 root qdisc 是 FlowGuard 的 `tbf` 时删除，避免误删用户已有的 `tc` 配置。
 - `flowguard uninstall` 会先解除 FlowGuard 管理的 `tbf` 限速，再删除服务、配置、状态和二进制。
 - 默认不会删除 `vnStat` 数据库和系统依赖；如确认这些接口数据只给 FlowGuard 使用，可加 `--remove-vnstat=true`。
 

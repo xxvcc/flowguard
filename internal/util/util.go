@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -84,11 +85,10 @@ func IsRoot() bool {
 }
 
 func DetectDefaultInterface() (string, error) {
-	ipPath, lookupErr := ResolveCommand("ip")
-	if lookupErr == nil {
-		out, err := exec.Command(ipPath, "route", "show", "default").Output()
+	if CommandExists("ip") {
+		out, err := Run(10*time.Second, "ip", "route", "show", "default")
 		if err == nil {
-			fields := strings.Fields(string(out))
+			fields := strings.Fields(out.Stdout)
 			for i := 0; i < len(fields)-1; i++ {
 				if fields[i] == "dev" {
 					return fields[i+1], nil
@@ -166,8 +166,14 @@ func ParseBytes(input string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid byte value %q", input)
 	}
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("byte value must be finite")
+	}
 	if value < 0 {
 		return 0, fmt.Errorf("byte value must be non-negative")
+	}
+	if value > float64(^uint64(0))/mult {
+		return 0, fmt.Errorf("byte value is too large")
 	}
 	return uint64(value * mult), nil
 }

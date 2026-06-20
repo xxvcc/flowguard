@@ -14,30 +14,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: go.mod
           cache: true
       - name: Test
         run: go test ./...
+      - name: Vet
+        run: go vet ./...
       - name: Build artifacts
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist build
-          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_amd64.tar.gz flowguard
           rm -f build/flowguard
-          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_arm64.tar.gz flowguard
           rm -f build/flowguard
-          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_armv7.tar.gz flowguard
           (cd dist && sha256sum flowguard_*.tar.gz > checksums.txt)
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: dist/*
           generate_release_notes: true

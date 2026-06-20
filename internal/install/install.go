@@ -78,6 +78,9 @@ func Run(opts Options) error {
 		for _, item := range strings.Split(iface, ",") {
 			item = strings.TrimSpace(item)
 			if item != "" {
+				if !config.ValidInterfaceName(item) {
+					return fmt.Errorf("invalid interface name %q", item)
+				}
 				interfaces = append(interfaces, item)
 			}
 		}
@@ -91,6 +94,9 @@ func Run(opts Options) error {
 			return err
 		}
 		iface = detected
+	}
+	if !config.ValidInterfaceName(iface) {
+		return fmt.Errorf("invalid interface name %q", iface)
 	}
 	if len(interfaces) == 0 {
 		interfaces = []string{iface}
@@ -113,6 +119,12 @@ func Run(opts Options) error {
 	}
 	if opts.StatePath == "" {
 		opts.StatePath = config.DefaultStatePath
+	}
+	if err := setInstallBaseline(&cfg); err != nil {
+		if !isVnStatWarmupError(err) {
+			return err
+		}
+		fmt.Printf("Warning: %v; using zero install baseline. Run `flowguard status` after vnStat has collected data.\n", err)
 	}
 	if backup, err := config.Backup(opts.ConfigPath); err == nil && backup != "" {
 		fmt.Printf("Backup: %s\n", backup)
@@ -323,6 +335,7 @@ func applyOptionValues(cfg config.Config, opts Options) (config.Config, error) {
 		return cfg, err
 	}
 	cfg.AllowanceBytes = allowance
+	applyTelegramOptions(&cfg, opts)
 	if opts.InitialTotal != "" && (opts.InitialRX != "" || opts.InitialTX != "") {
 		return cfg, fmt.Errorf("use either --initial-total or --initial-rx/--initial-tx, not both")
 	}
@@ -331,8 +344,13 @@ func applyOptionValues(cfg config.Config, opts Options) (config.Config, error) {
 		if err != nil {
 			return cfg, err
 		}
-		cfg.InitialRXBytes = total
-		cfg.InitialTXBytes = 0
+		if cfg.BillingMode == "outbound" {
+			cfg.InitialRXBytes = 0
+			cfg.InitialTXBytes = total
+		} else {
+			cfg.InitialRXBytes = total
+			cfg.InitialTXBytes = 0
+		}
 		return cfg, cfg.Validate()
 	}
 	rx, err := util.ParseBytes(opts.InitialRX)
@@ -345,12 +363,46 @@ func applyOptionValues(cfg config.Config, opts Options) (config.Config, error) {
 	}
 	cfg.InitialRXBytes = rx
 	cfg.InitialTXBytes = tx
+	return cfg, cfg.Validate()
+}
+
+func applyTelegramOptions(cfg *config.Config, opts Options) {
 	if opts.TGToken != "" || opts.TGChatID != "" {
 		cfg.Telegram.Enabled = true
 		cfg.Telegram.BotToken = opts.TGToken
 		cfg.Telegram.ChatID = opts.TGChatID
 	}
-	return cfg, cfg.Validate()
+}
+
+func setInstallBaseline(cfg *config.Config) error {
+	baselineConfig := *cfg
+	baselineConfig.InitialRXBytes = 0
+	baselineConfig.InitialTXBytes = 0
+	baselineConfig.BaselineRXBytes = 0
+	baselineConfig.BaselineTXBytes = 0
+	var lastErr error
+	for attempt := 1; attempt <= 6; attempt++ {
+		usage, err := traffic.ReadUsage(baselineConfig, time.Now())
+		if err == nil {
+			cfg.BaselineRXBytes = usage.RXBytes
+			cfg.BaselineTXBytes = usage.TXBytes
+			return nil
+		}
+		lastErr = err
+		if attempt < 6 {
+			fmt.Printf("Waiting for vnStat baseline data (%d/6): %v\n", attempt, err)
+			time.Sleep(10 * time.Second)
+		}
+	}
+	return fmt.Errorf("read install baseline: %w", lastErr)
+}
+
+func isVnStatWarmupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "monthly data") && strings.Contains(message, "is missing") || strings.Contains(message, "daily data is empty")
 }
 
 func firstNonEmpty(values ...string) string {
@@ -371,15 +423,43 @@ func installBinary() error {
 	if err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("/usr/local/bin/flowguard.tmp.%d", os.Getpid())
-	if err := os.WriteFile(tmp, data, 0755); err != nil {
+	const installDir = "/usr/local/bin"
+	tmp, err := os.CreateTemp(installDir, "flowguard.tmp.")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, "/usr/local/bin/flowguard"); err != nil {
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Chmod(0755); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, installDir+"/flowguard"); err != nil {
+		return err
+	}
+	_ = syncDir(installDir)
 	fmt.Println("Installed binary: /usr/local/bin/flowguard")
 	return nil
+}
+
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func askInstallDeps() bool {

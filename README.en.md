@@ -28,6 +28,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 
 The installer downloads the latest GitHub Release, verifies `checksums.txt`, installs the `flowguard` binary, installs dependencies, and starts the setup wizard.
 
+> Security note: `curl | sudo sh` is intended for quick installs on new self-managed VPS hosts. For production, download and review the script first, or pin `FLOWGUARD_VERSION=vX.Y.Z`; only use `FLOWGUARD_BASE_URL` mirrors that you trust.
+
 > Running FlowGuard does **not** require Go on the VPS. Go is only needed when building from source.
 
 ## TUI Preview
@@ -61,6 +63,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 - Billing period start day: `1-28`
 - Mid-cycle initial usage offset: none / total / split
 - Multi-interface support: `eth0,ens5` or `auto-public`
+- Multi-interface limits split the configured total rate across interfaces
 - Threshold hysteresis to prevent limit flapping
 - First-limit dry run protection
 - Telegram notifications
@@ -79,6 +82,8 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
 | `flowguard rollback` | Restore latest config backup |
+| `flowguard upgrade` | Download, verify, and upgrade to the latest Release |
+| `flowguard upgrade --version v0.1.4` | Upgrade to a specific version |
 | `flowguard test-notify` | Send a Telegram test notification |
 | `flowguard uninstall` | Remove service, config, state, and binary |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
@@ -144,6 +149,22 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
   sudo env FLOWGUARD_BASE_URL=https://example.com/flowguard/releases/latest sh
 ```
 
+Upgrade only the binary and skip the setup wizard:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
+  sudo env FLOWGUARD_SKIP_SETUP=1 sh
+```
+
+After installation, you can also use the built-in upgrade command:
+
+```bash
+sudo flowguard upgrade
+sudo flowguard upgrade --version v0.1.4
+```
+
+Upgrade replaces only the binary and restarts the service. It does not modify `/etc/flowguard/config.json` or `/var/lib/flowguard/state.json`.
+
 ## Configuration
 
 Default config path: `/etc/flowguard/config.json`
@@ -159,6 +180,8 @@ Default config path: `/etc/flowguard/config.json`
   "initial_period": "2026-06",
   "initial_rx_bytes": 0,
   "initial_tx_bytes": 0,
+  "baseline_rx_bytes": 0,
+  "baseline_tx_bytes": 0,
   "thresholds": {
     "warn_percent": 70,
     "soft_percent": 85,
@@ -188,8 +211,8 @@ Default config path: `/etc/flowguard/config.json`
 - `period_day=1` uses `vnStat` monthly data; other start days sum `vnStat` daily data.
 - If internal/private traffic is free on a separate NIC, monitor only the public NIC.
 - If public and private traffic share one NIC, `vnStat` cannot distinguish them; a future nftables accounting mode would be needed.
-- `flowguard limit` replaces the root qdisc with `tbf`; do not combine it with another root `tc` shaper on the same interface.
-- `flowguard unlimit` only removes the root qdisc when it is currently `tbf`.
+- `flowguard limit` replaces the root qdisc with FlowGuard's managed `tbf` (handle `10f1:`); do not combine it with another root `tc` shaper on the same interface.
+- `flowguard unlimit` only removes the root qdisc when it is FlowGuard's managed `tbf`, avoiding user-owned `tc` configurations.
 - `flowguard uninstall` removes FlowGuard-managed `tbf` limits before deleting the service, config, state, and binary.
 - It does not remove the `vnStat` database or system packages by default; use `--remove-vnstat=true` only when those interface records are dedicated to FlowGuard.
 

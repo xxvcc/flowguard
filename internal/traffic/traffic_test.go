@@ -108,14 +108,11 @@ func TestDecideWithStateHysteresis(t *testing.T) {
 	}
 }
 
-func TestFindMonthFallsBackToTotal(t *testing.T) {
+func TestFindMonthRejectsMissingMonth(t *testing.T) {
 	data := vnstatJSON{Interfaces: []vnstatInterface{{Name: "eth0", Traffic: vnstatTraffic{Total: vnstatTotal{RX: 123, TX: 456}}}}}
-	rx, tx, err := findMonth(data, "eth0", "2026-06")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rx != 123 || tx != 456 {
-		t.Fatalf("findMonth fallback rx=%d tx=%d", rx, tx)
+	_, _, err := findMonth(data, "eth0", "2026-06")
+	if err == nil {
+		t.Fatal("expected missing month error")
 	}
 }
 
@@ -136,8 +133,35 @@ func TestFindMonthUsesMonthWhenAvailable(t *testing.T) {
 func TestRemoveLimitSkipsNonTBFInFakeCurrentLimit(t *testing.T) {
 	// Covered by integration tests with fake tc output; this test documents the
 	// intended safety behavior: only FlowGuard's tbf qdisc should be removed.
-	if !strings.HasPrefix("qdisc tbf 8001: root", "qdisc tbf ") {
+	if strings.HasPrefix("qdisc tbf 8001: root", "qdisc tbf "+qdiscHandle+" ") {
+		t.Fatal("non-FlowGuard tbf should not match")
+	}
+	if !strings.HasPrefix("qdisc tbf "+qdiscHandle+" root", "qdisc tbf "+qdiscHandle+" ") {
 		t.Fatal("tbf prefix expectation changed")
+	}
+}
+
+func TestCanReplaceRootQdisc(t *testing.T) {
+	allowed := []string{
+		"",
+		"qdisc noqueue 0: root refcnt 2",
+		"qdisc fq_codel 0: root refcnt 2",
+		"qdisc tbf " + qdiscHandle + " root refcnt 2 rate 1Mbit",
+	}
+	for _, current := range allowed {
+		if !canReplaceRootQdisc(current) {
+			t.Fatalf("expected replace allowed for %q", current)
+		}
+	}
+	blocked := []string{
+		"qdisc tbf 8001: root refcnt 2 rate 1Mbit",
+		"qdisc htb 1: root refcnt 2",
+		"qdisc cake 8001: root refcnt 2",
+	}
+	for _, current := range blocked {
+		if canReplaceRootQdisc(current) {
+			t.Fatalf("expected replace blocked for %q", current)
+		}
 	}
 }
 
@@ -148,5 +172,48 @@ func TestSaturatingAdd(t *testing.T) {
 	}
 	if got := saturatingAdd(max, 1); got != max {
 		t.Fatalf("saturatingAdd overflow=%d, want %d", got, max)
+	}
+}
+
+func TestSaturatingSubtract(t *testing.T) {
+	if got := saturatingSubtract(10, 3); got != 7 {
+		t.Fatalf("saturatingSubtract=%d, want 7", got)
+	}
+	if got := saturatingSubtract(3, 10); got != 0 {
+		t.Fatalf("saturatingSubtract underflow=%d, want 0", got)
+	}
+}
+
+func TestSplitRate(t *testing.T) {
+	single, err := SplitRate("10mbit", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if single != "10000000bit" {
+		t.Fatalf("single SplitRate=%s", single)
+	}
+	got, err := SplitRate("10mbit", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "5000000bit" {
+		t.Fatalf("SplitRate=%s", got)
+	}
+	for _, rate := range []string{"10foo", "NaNmbit", "+Infmbit", ""} {
+		if _, err := SplitRate(rate, 2); err == nil {
+			t.Fatalf("expected unsupported rate error for %q", rate)
+		}
+	}
+	if _, err := SplitRate("1e309mbit", 1); err == nil {
+		t.Fatal("expected unsupported rate error")
+	}
+}
+
+func TestUpdateStateDryRunCanKeepUnappliedLimit(t *testing.T) {
+	state := UpdateState(config.State{}, Usage{Period: "2026-06", RXBytes: 1, TXBytes: 2, TotalBytes: 3, BillableBytes: 3}, Decision{Level: LevelHard, LimitRate: "1mbit"})
+	state.Limited = false
+	state.CurrentLimitRate = ""
+	if state.Level != LevelHard || state.Limited || state.CurrentLimitRate != "" {
+		t.Fatalf("dry-run state=%+v", state)
 	}
 }

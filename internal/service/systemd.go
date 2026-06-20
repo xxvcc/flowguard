@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 const systemdUnitPath = "/etc/systemd/system/flowguard.service"
 
 func InstallSystemd(binaryPath string, configPath string, statePath string) error {
+	stateDir := filepath.Dir(statePath)
 	unit := fmt.Sprintf(`[Unit]
 Description=FlowGuard
 After=network-online.target vnstat.service
@@ -28,7 +30,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/flowguard
+ReadWritePaths=%s
 CapabilityBoundingSet=CAP_NET_ADMIN
 RestrictSUIDSGID=true
 LockPersonality=true
@@ -37,7 +39,7 @@ SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath, configPath, statePath)
+`, systemdEscapeArg(binaryPath), systemdEscapeArg(configPath), systemdEscapeArg(statePath), systemdEscapeArg(stateDir))
 	if err := os.WriteFile(systemdUnitPath, []byte(unit), 0644); err != nil {
 		return err
 	}
@@ -51,6 +53,28 @@ WantedBy=multi-user.target
 		return err
 	}
 	return nil
+}
+
+func systemdEscapeArg(value string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '\\', '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case '%':
+			b.WriteString("%%")
+		case '\n':
+			b.WriteString("\\n")
+		case '\t':
+			b.WriteString("\\t")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func Restart() error {
