@@ -109,7 +109,7 @@ func Run(opts Options) error {
 		}
 	}
 
-	cfg, err := buildConfig(opts, iface)
+	cfg, lang, err := buildConfig(opts, iface)
 	if err != nil {
 		return err
 	}
@@ -165,25 +165,42 @@ func Run(opts Options) error {
 			fmt.Println("Telegram test notification sent.")
 		}
 	}
-	printInstallSummary(cfg)
+	printInstallSummary(cfg, lang)
 	return nil
 }
 
-func printInstallSummary(cfg config.Config) {
-	fmt.Println("\nFlowGuard summary:")
-	fmt.Printf("  Interface: %s\n", cfg.Interface)
-	fmt.Printf("  Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))
-	fmt.Printf("  Billing mode: %s\n", cfg.BillingMode)
-	fmt.Printf("  Billing period day: %d\n", cfg.PeriodDay)
-	fmt.Printf("  Thresholds: warn %.1f%%, soft %.1f%%, hard %.1f%%\n", cfg.Thresholds.WarnPercent, cfg.Thresholds.SoftPercent, cfg.Thresholds.HardPercent)
-	fmt.Printf("  Clear thresholds: warn %.1f%%, soft %.1f%%, hard %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
-	fmt.Printf("  Limits: soft %s, hard %s\n", cfg.Limits.SoftRate, cfg.Limits.HardRate)
-	if cfg.Telegram.Enabled {
-		fmt.Println("  Notify: telegram")
-	} else {
-		fmt.Println("  Notify: none")
+func printInstallSummary(cfg config.Config, lang string) {
+	if lang == "en" {
+		fmt.Println("\nFlowGuard summary:")
+		fmt.Printf("  Interface: %s\n", cfg.Interface)
+		fmt.Printf("  Allowance: %s\n", util.FormatBytes(cfg.AllowanceBytes))
+		fmt.Printf("  Billing mode: %s\n", cfg.BillingMode)
+		fmt.Printf("  Billing period day: %d\n", cfg.PeriodDay)
+		fmt.Printf("  Thresholds: warn %.1f%%, soft %.1f%%, hard %.1f%%\n", cfg.Thresholds.WarnPercent, cfg.Thresholds.SoftPercent, cfg.Thresholds.HardPercent)
+		fmt.Printf("  Clear thresholds: warn %.1f%%, soft %.1f%%, hard %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
+		fmt.Printf("  Limits: soft %s, hard %s\n", cfg.Limits.SoftRate, cfg.Limits.HardRate)
+		if cfg.Telegram.Enabled {
+			fmt.Println("  Notify: telegram")
+		} else {
+			fmt.Println("  Notify: none")
+		}
+		fmt.Printf("  First-limit dry run: %v\n", cfg.Safety.FirstLimitDryRun)
+		return
 	}
-	fmt.Printf("  First-limit dry run: %v\n", cfg.Safety.FirstLimitDryRun)
+	fmt.Println("\nFlowGuard 配置摘要：")
+	fmt.Printf("  网卡：%s\n", cfg.Interface)
+	fmt.Printf("  流量额度：%s\n", util.FormatBytes(cfg.AllowanceBytes))
+	fmt.Printf("  计费模式：%s\n", cfg.BillingMode)
+	fmt.Printf("  账期起始日：%d\n", cfg.PeriodDay)
+	fmt.Printf("  触发阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnPercent, cfg.Thresholds.SoftPercent, cfg.Thresholds.HardPercent)
+	fmt.Printf("  恢复阈值：提醒 %.1f%%，轻度限速 %.1f%%，强限速 %.1f%%\n", cfg.Thresholds.WarnClearPercent, cfg.Thresholds.SoftClearPercent, cfg.Thresholds.HardClearPercent)
+	fmt.Printf("  限速值：轻度 %s，强限速 %s\n", cfg.Limits.SoftRate, cfg.Limits.HardRate)
+	if cfg.Telegram.Enabled {
+		fmt.Println("  通知：Telegram")
+	} else {
+		fmt.Println("  通知：未启用")
+	}
+	fmt.Printf("  首次限速保护：%v\n", cfg.Safety.FirstLimitDryRun)
 }
 
 func labels(lang string) map[string]string {
@@ -224,9 +241,13 @@ func labels(lang string) map[string]string {
 	return zh
 }
 
-func buildConfig(opts Options, iface string) (config.Config, error) {
+func buildConfig(opts Options, iface string) (config.Config, string, error) {
 	cfg := config.DefaultConfig()
 	cfg.Interface = iface
+	lang := opts.Language
+	if lang == "" {
+		lang = "zh"
+	}
 	if opts.PeriodDay != 0 {
 		cfg.PeriodDay = opts.PeriodDay
 	}
@@ -246,13 +267,15 @@ func buildConfig(opts Options, iface string) (config.Config, error) {
 
 	if opts.Yes {
 		if opts.Allowance == "" {
-			return cfg, fmt.Errorf("--allowance is required when --yes is used")
+			return cfg, lang, fmt.Errorf("--allowance is required when --yes is used")
 		}
-		return applyOptionValues(cfg, opts)
+		cfg, err := applyOptionValues(cfg, opts)
+		return cfg, lang, err
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	lang := opts.Language
+	scanner, closeInput := newPromptScanner()
+	defer closeInput()
+	lang = opts.Language
 	if lang == "" {
 		lang = util.PromptChoice(scanner, "Language / 语言", "zh", []string{"zh", "en"})
 	}
@@ -266,20 +289,20 @@ func buildConfig(opts Options, iface string) (config.Config, error) {
 		periodDayText := util.Prompt(scanner, tr["period_day"], strconv.Itoa(cfg.PeriodDay))
 		parsedPeriodDay, err := strconv.Atoi(periodDayText)
 		if err != nil {
-			return cfg, fmt.Errorf("invalid billing period start day: %w", err)
+			return cfg, lang, fmt.Errorf("invalid billing period start day: %w", err)
 		}
 		periodDay = parsedPeriodDay
 	}
 	cfg.PeriodDay = periodDay
 	cfg.InitialPeriod = traffic.CurrentPeriod(time.Now(), cfg.PeriodDay)
 	if opts.BillingMode == "" {
-		cfg.BillingMode = util.PromptChoice(scanner, tr["billing_mode"], cfg.BillingMode, []string{"total", "outbound"})
+		cfg.BillingMode = promptValueChoice(scanner, tr["billing_mode"], cfg.BillingMode, billingModeChoices(lang))
 	}
 	initialTotal := opts.InitialTotal
 	initialRX := opts.InitialRX
 	initialTX := opts.InitialTX
 	if initialTotal == "" && initialRX == "" && initialTX == "" {
-		mode := util.PromptChoice(scanner, tr["initial_mode"], "none", []string{"none", "total", "split"})
+		mode := promptValueChoice(scanner, tr["initial_mode"], "none", initialModeChoices(lang))
 		switch mode {
 		case "total":
 			initialTotal = util.Prompt(scanner, tr["initial_total"], "0")
@@ -305,10 +328,10 @@ func buildConfig(opts Options, iface string) (config.Config, error) {
 	check := util.Prompt(scanner, tr["check_interval"], strconv.Itoa(cfg.CheckIntervalSeconds))
 	checkSeconds, err := strconv.Atoi(check)
 	if err != nil {
-		return cfg, fmt.Errorf("invalid check interval: %w", err)
+		return cfg, lang, fmt.Errorf("invalid check interval: %w", err)
 	}
 	cfg.CheckIntervalSeconds = checkSeconds
-	cfg.Telegram.Enabled = util.PromptBool(scanner, tr["enable_tg"], opts.TGToken != "" || opts.TGChatID != "")
+	cfg.Telegram.Enabled = promptBoolLocalized(scanner, tr["enable_tg"], opts.TGToken != "" || opts.TGChatID != "", lang)
 	if cfg.Telegram.Enabled {
 		cfg.Telegram.BotToken = opts.TGToken
 		if cfg.Telegram.BotToken == "" {
@@ -320,13 +343,72 @@ func buildConfig(opts Options, iface string) (config.Config, error) {
 		}
 	}
 	if opts.FirstLimitDryRun == nil {
-		cfg.Safety.FirstLimitDryRun = util.PromptBool(scanner, tr["dry_run"], cfg.Safety.FirstLimitDryRun)
+		cfg.Safety.FirstLimitDryRun = promptBoolLocalized(scanner, tr["dry_run"], cfg.Safety.FirstLimitDryRun, lang)
 	}
 	opts.Allowance = allowance
 	opts.InitialTotal = initialTotal
 	opts.InitialRX = initialRX
 	opts.InitialTX = initialTX
-	return applyOptionValues(cfg, opts)
+	cfg, err = applyOptionValues(cfg, opts)
+	return cfg, lang, err
+}
+
+func newPromptScanner() (*bufio.Scanner, func()) {
+	if tty, err := os.Open("/dev/tty"); err == nil {
+		return bufio.NewScanner(tty), func() { _ = tty.Close() }
+	}
+	return bufio.NewScanner(os.Stdin), func() {}
+}
+
+type valueChoice struct {
+	value string
+	label string
+}
+
+func promptValueChoice(scanner *bufio.Scanner, label string, defaultValue string, choices []valueChoice) string {
+	labels := make([]string, 0, len(choices))
+	labelToValue := map[string]string{}
+	defaultLabel := ""
+	for _, choice := range choices {
+		labels = append(labels, choice.label)
+		labelToValue[choice.label] = choice.value
+		if choice.value == defaultValue {
+			defaultLabel = choice.label
+		}
+	}
+	if defaultLabel == "" && len(choices) > 0 {
+		defaultLabel = choices[0].label
+	}
+	selected := util.PromptChoice(scanner, label, defaultLabel, labels)
+	if value, ok := labelToValue[selected]; ok {
+		return value
+	}
+	return defaultValue
+}
+
+func promptBoolLocalized(scanner *bufio.Scanner, label string, defaultValue bool, lang string) bool {
+	if lang == "en" {
+		return util.PromptBool(scanner, label, defaultValue)
+	}
+	defaultLabel := "否"
+	if defaultValue {
+		defaultLabel = "是"
+	}
+	return util.PromptChoice(scanner, label, defaultLabel, []string{"是", "否"}) == "是"
+}
+
+func billingModeChoices(lang string) []valueChoice {
+	if lang == "en" {
+		return []valueChoice{{value: "total", label: "total"}, {value: "outbound", label: "outbound"}}
+	}
+	return []valueChoice{{value: "total", label: "total（入站 + 出站）"}, {value: "outbound", label: "outbound（仅出站）"}}
+}
+
+func initialModeChoices(lang string) []valueChoice {
+	if lang == "en" {
+		return []valueChoice{{value: "none", label: "none"}, {value: "total", label: "total"}, {value: "split", label: "split"}}
+	}
+	return []valueChoice{{value: "none", label: "不录入"}, {value: "total", label: "录入总量"}, {value: "split", label: "入站/出站分开录入"}}
 }
 
 func applyOptionValues(cfg config.Config, opts Options) (config.Config, error) {
@@ -463,8 +545,9 @@ func syncDir(path string) error {
 }
 
 func askInstallDeps() bool {
-	scanner := bufio.NewScanner(os.Stdin)
-	return util.PromptBool(scanner, "Install missing dependencies automatically", true)
+	scanner, closeInput := newPromptScanner()
+	defer closeInput()
+	return util.PromptBool(scanner, "自动安装缺失依赖 / Install missing dependencies automatically", true)
 }
 
 func missingDependencies() []string {

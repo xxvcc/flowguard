@@ -1,6 +1,8 @@
 package install
 
 import (
+	"bufio"
+	"strings"
 	"testing"
 
 	"flowguard/internal/config"
@@ -57,8 +59,23 @@ func TestApplyOptionValuesBillingMode(t *testing.T) {
 }
 
 func TestBuildConfigRejectsInvalidInterface(t *testing.T) {
-	_, err := buildConfig(Options{Yes: true, Allowance: "1000GB"}, "bad/name")
+	_, _, err := buildConfig(Options{Yes: true, Allowance: "1000GB"}, "bad/name")
 	if err == nil {
 		t.Fatal("expected invalid interface error")
+	}
+}
+
+func TestPromptValueChoiceChineseLabelMapsToValue(t *testing.T) {
+	scanner := bufio.NewScanner(strings.NewReader("2\n"))
+	got := promptValueChoice(scanner, "计费模式", "total", billingModeChoices("zh"))
+	if got != "outbound" {
+		t.Fatalf("promptValueChoice=%q", got)
+	}
+}
+
+func TestPromptBoolLocalized(t *testing.T) {
+	scanner := bufio.NewScanner(strings.NewReader("2\n"))
+	if promptBoolLocalized(scanner, "启用", true, "zh") {
+		t.Fatal("expected Chinese no selection")
 	}
 }

@@ -240,11 +240,11 @@ func PromptChoice(scanner *bufio.Scanner, label string, defaultValue string, cho
 			}
 			fmt.Printf("  %s %d) %s\n", marker, i+1, choice)
 		}
-		answer := strings.ToLower(Prompt(scanner, "Choose", strconv.Itoa(defaultIndex)))
+		answer := strings.ToLower(Prompt(scanner, "Choose / 选择", strconv.Itoa(defaultIndex)))
 		if selected, ok := allowed[answer]; ok {
 			return selected
 		}
-		fmt.Printf("Please choose 1-%d.\n", len(choices))
+		fmt.Printf("Please choose / 请选择 1-%d.\n", len(choices))
 	}
 }
 
