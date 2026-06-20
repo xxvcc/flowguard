@@ -188,9 +188,52 @@ func TestFormatNotificationUsesChinese(t *testing.T) {
 	cfg.Interface = "eth0"
 	cfg.AllowanceBytes = 1000
 	cfg.Language = "zh"
-	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn})
+	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, traffic.RecentUsage{})
 	if !strings.Contains(msg, "流量额度") || !strings.Contains(msg, "剩余额度") {
 		t.Fatalf("notification not localized: %s", msg)
+	}
+}
+
+func TestFormatNotificationIncludesRecentUsage(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.AllowanceBytes = 1000
+	cfg.Language = "zh"
+	recent := traffic.RecentUsage{
+		Today:    traffic.UsageSummary{RXBytes: 1, TXBytes: 1, TotalBytes: 2, BillableBytes: 2},
+		ThisWeek: traffic.UsageSummary{RXBytes: 10, TXBytes: 10, TotalBytes: 20, BillableBytes: 20},
+	}
+	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, recent)
+	if !strings.Contains(msg, "今日新增") || !strings.Contains(msg, "本周累计") {
+		t.Fatalf("notification missing recent usage: %s", msg)
+	}
+}
+
+func TestComputeForecastUsesWeekly(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AllowanceBytes = 1000
+	cfg.PeriodDay = 1
+	cfg.Thresholds.SoftPercent = 80
+	usage := traffic.Usage{BillableBytes: 100}
+	recent := traffic.RecentUsage{
+		ThisWeek: traffic.UsageSummary{BillableBytes: 70, TotalBytes: 70},
+	}
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) // Saturday => 6 days into week
+	f := computeForecast(cfg, usage, recent, true, now)
+	if !f.Available {
+		t.Fatalf("forecast unavailable")
+	}
+	if f.AvgPerDayBytes == 0 {
+		t.Fatalf("avg/day zero")
+	}
+	if f.WindowSource != "this_week" {
+		t.Fatalf("expected this_week window, got %q", f.WindowSource)
+	}
+	if f.PredictedTotalBytes <= usage.BillableBytes {
+		t.Fatalf("predicted total not increasing: %d", f.PredictedTotalBytes)
+	}
+	if f.DaysToSoftLimit < 0 {
+		t.Fatalf("days to soft negative")
 	}
 }
 

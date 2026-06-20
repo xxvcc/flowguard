@@ -141,6 +141,34 @@ func ReadUsage(cfg config.Config, now time.Time) (Usage, error) {
 }
 
 func ReadRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
+	raw, err := readRawRecentUsage(cfg, now)
+	if err != nil {
+		return RecentUsage{}, err
+	}
+	today := dateOnly(now)
+	yesterday := today.AddDate(0, 0, -1)
+	weekStart := today.AddDate(0, 0, -daysSinceMonday(today))
+	todayRX, todayTX := raw.Today.RXBytes, raw.Today.TXBytes
+	yesterdayRX, yesterdayTX := raw.Yesterday.RXBytes, raw.Yesterday.TXBytes
+	weekRX, weekTX := raw.ThisWeek.RXBytes, raw.ThisWeek.TXBytes
+	todayRX, todayTX = applyDailyBaseline(cfg, today, todayRX, todayTX)
+	yesterdayRX, yesterdayTX = applyDailyBaseline(cfg, yesterday, yesterdayRX, yesterdayTX)
+	weekRX, weekTX = applyWeekBaseline(cfg, weekStart, today, weekRX, weekTX)
+	return RecentUsage{
+		Today:     makeUsageSummary(cfg, todayRX, todayTX),
+		Yesterday: makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
+		ThisWeek:  makeUsageSummary(cfg, weekRX, weekTX),
+	}, nil
+}
+
+// ReadRawRecentUsage returns today/yesterday/this-week vnStat sums without
+// subtracting any FlowGuard install baseline; intended for capturing a fresh
+// baseline (e.g. modify --reset-recent-baseline) or for diagnostics.
+func ReadRawRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
+	return readRawRecentUsage(cfg, now)
+}
+
+func readRawRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
 	result, err := util.Run(30*time.Second, "vnstat", "--json")
 	if err != nil {
 		return RecentUsage{}, err
@@ -169,6 +197,57 @@ func ReadRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
 		Yesterday: makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
 		ThisWeek:  makeUsageSummary(cfg, weekRX, weekTX),
 	}, nil
+}
+
+func applyDailyBaseline(cfg config.Config, date time.Time, rx uint64, tx uint64) (uint64, uint64) {
+	baselineDate, ok := baselineDate(cfg)
+	if !ok {
+		return rx, tx
+	}
+	date = dateOnly(date)
+	if dateKey(date) < dateKey(baselineDate) {
+		return 0, 0
+	}
+	if sameDate(date, baselineDate) {
+		return saturatingSubtract(rx, cfg.BaselineDayRXBytes), saturatingSubtract(tx, cfg.BaselineDayTXBytes)
+	}
+	return rx, tx
+}
+
+func applyWeekBaseline(cfg config.Config, weekStart time.Time, weekEnd time.Time, rx uint64, tx uint64) (uint64, uint64) {
+	baselineDate, ok := baselineDate(cfg)
+	if !ok {
+		return rx, tx
+	}
+	weekStart = dateOnly(weekStart)
+	weekEnd = dateOnly(weekEnd)
+	if dateKey(weekEnd) < dateKey(baselineDate) {
+		return 0, 0
+	}
+	baselineWeekStart := baselineDate.AddDate(0, 0, -daysSinceMonday(baselineDate))
+	if sameDate(weekStart, baselineWeekStart) && dateKey(baselineDate) <= dateKey(weekEnd) {
+		return saturatingSubtract(rx, cfg.BaselineWeekRXBytes), saturatingSubtract(tx, cfg.BaselineWeekTXBytes)
+	}
+	return rx, tx
+}
+
+func sameDate(left time.Time, right time.Time) bool {
+	return left.Year() == right.Year() && left.Month() == right.Month() && left.Day() == right.Day()
+}
+
+func dateKey(value time.Time) int {
+	return value.Year()*10000 + int(value.Month())*100 + value.Day()
+}
+
+func baselineDate(cfg config.Config) (time.Time, bool) {
+	if cfg.BaselineAt == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse("2006-01-02", cfg.BaselineAt)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return dateOnly(parsed), true
 }
 
 func makeUsageSummary(cfg config.Config, rx uint64, tx uint64) UsageSummary {

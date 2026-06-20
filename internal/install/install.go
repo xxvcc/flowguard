@@ -475,12 +475,20 @@ func setInstallBaseline(cfg *config.Config) error {
 	baselineConfig.InitialTXBytes = 0
 	baselineConfig.BaselineRXBytes = 0
 	baselineConfig.BaselineTXBytes = 0
+	now := time.Now()
 	var lastErr error
 	for attempt := 1; attempt <= 6; attempt++ {
-		usage, err := traffic.ReadUsage(baselineConfig, time.Now())
+		usage, err := traffic.ReadUsage(baselineConfig, now)
 		if err == nil {
 			cfg.BaselineRXBytes = usage.RXBytes
 			cfg.BaselineTXBytes = usage.TXBytes
+			cfg.BaselineAt = now.Format("2006-01-02")
+			if recent, recentErr := traffic.ReadRecentUsage(baselineConfig, now); recentErr == nil {
+				cfg.BaselineDayRXBytes = recent.Today.RXBytes
+				cfg.BaselineDayTXBytes = recent.Today.TXBytes
+				cfg.BaselineWeekRXBytes = recent.ThisWeek.RXBytes
+				cfg.BaselineWeekTXBytes = recent.ThisWeek.TXBytes
+			}
 			return nil
 		}
 		lastErr = err

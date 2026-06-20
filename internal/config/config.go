@@ -39,6 +39,11 @@ type Config struct {
 	InitialTXBytes       uint64     `json:"initial_tx_bytes"`
 	BaselineRXBytes      uint64     `json:"baseline_rx_bytes,omitempty"`
 	BaselineTXBytes      uint64     `json:"baseline_tx_bytes,omitempty"`
+	BaselineAt           string     `json:"baseline_at,omitempty"`
+	BaselineDayRXBytes   uint64     `json:"baseline_day_rx_bytes,omitempty"`
+	BaselineDayTXBytes   uint64     `json:"baseline_day_tx_bytes,omitempty"`
+	BaselineWeekRXBytes  uint64     `json:"baseline_week_rx_bytes,omitempty"`
+	BaselineWeekTXBytes  uint64     `json:"baseline_week_tx_bytes,omitempty"`
 	Thresholds           Thresholds `json:"thresholds"`
 	Limits               Limits     `json:"limits"`
 	Safety               Safety     `json:"safety"`

@@ -87,6 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard doctor` | 检查配置、`vnStat`、`tc`、网卡和服务 |
 | `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
 | `flowguard modify --language zh` | 切换后续命令和通知输出语言 |
+| `flowguard modify --reset-recent-baseline` | 升级后跑一次，重设今日/本周基线 |
 | `flowguard topup 100GB` | 购买额外流量后追加额度，并立即重新评估/解除限速 |
 | `flowguard topup 100` | 同上；裸数字默认单位为 `GB` |
 | `flowguard rollback` | 回滚到最近一次配置备份 |
@@ -97,7 +98,17 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard uninstall --keep-config=true --keep-binary=true` | 卸载服务但保留配置、状态和二进制 |
 | `flowguard uninstall --remove-vnstat=true` | 卸载时同时移除配置网卡的 vnStat 数据 |
 
-`flowguard status` 默认显示用户摘要，并包含今天、昨天、本周（周一开始）的计费用量；原始 `tc` 输出只在 `--verbose` 中显示。
+`flowguard status` 默认显示用户摘要，并包含今天、昨天、本周（周一开始）的计费用量、本月预测和软限速 ETA；原始 `tc` 输出只在 `--verbose` 中显示。
+
+## 数据口径
+
+FlowGuard 在 `status` 中使用两套口径，避免把安装前的 vnStat 历史流量算进来：
+
+- **账期总用量** = 当前 vnStat 月度数据 − 安装基线（`baseline_rx_bytes` / `baseline_tx_bytes`）+ 你录入的初始用量（`initial_rx_bytes` / `initial_tx_bytes`）。
+- **今天 / 昨天 / 本周（自然周，周一开始）** = 当前 vnStat 日数据 − 安装当日 / 当周基线（`baseline_day_*` / `baseline_week_*`）。
+- 安装前的流量（vnStat 已有的历史数据）一律不算入 FlowGuard 用量。
+- `recent_usage_available=false` 时表示 vnStat 暂无可用日数据；近期统计返回零值，主账期用量不受影响。
+- 升级到 `v0.1.13+` 的旧安装需要执行一次 `sudo flowguard modify --reset-recent-baseline` 来补齐今天/本周基线，否则近期统计会回到 vnStat 原始日数据。
 
 ## 非交互安装
 

@@ -103,6 +103,7 @@ func cmdModify(args []string) error {
 	tgToken := fs.String("tg-token", "", "Telegram bot token")
 	tgChat := fs.String("tg-chat-id", "", "Telegram chat ID")
 	firstLimitDryRun := fs.Bool("first-limit-dry-run", true, "enable first-limit dry-run protection")
+	resetRecent := fs.Bool("reset-recent-baseline", false, "recapture today/this-week vnStat baselines from now (for upgrades from versions before recent-baseline tracking)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -179,6 +180,37 @@ func cmdModify(args []string) error {
 	}
 	if visited["first-limit-dry-run"] {
 		cfg.Safety.FirstLimitDryRun = *firstLimitDryRun
+	}
+	if *resetRecent {
+		now := time.Now()
+		stripped := cfg
+		stripped.BaselineAt = ""
+		stripped.BaselineDayRXBytes = 0
+		stripped.BaselineDayTXBytes = 0
+		stripped.BaselineWeekRXBytes = 0
+		stripped.BaselineWeekTXBytes = 0
+		recent, err := traffic.ReadRawRecentUsage(stripped, now)
+		if err != nil {
+			return fmt.Errorf("reset-recent-baseline failed to read vnStat: %w", err)
+		}
+		cfg.BaselineAt = now.Format("2006-01-02")
+		cfg.BaselineDayRXBytes = recent.Today.RXBytes
+		cfg.BaselineDayTXBytes = recent.Today.TXBytes
+		cfg.BaselineWeekRXBytes = recent.ThisWeek.RXBytes
+		cfg.BaselineWeekTXBytes = recent.ThisWeek.TXBytes
+		if isZH(cfg) {
+			fmt.Printf("已重设近期基线：baseline_at=%s 今日基线=%s/%s 本周基线=%s/%s\n",
+				cfg.BaselineAt,
+				util.FormatBytes(cfg.BaselineDayRXBytes), util.FormatBytes(cfg.BaselineDayTXBytes),
+				util.FormatBytes(cfg.BaselineWeekRXBytes), util.FormatBytes(cfg.BaselineWeekTXBytes),
+			)
+		} else {
+			fmt.Printf("Recent baseline reset: baseline_at=%s today=%s/%s this_week=%s/%s\n",
+				cfg.BaselineAt,
+				util.FormatBytes(cfg.BaselineDayRXBytes), util.FormatBytes(cfg.BaselineDayTXBytes),
+				util.FormatBytes(cfg.BaselineWeekRXBytes), util.FormatBytes(cfg.BaselineWeekTXBytes),
+			)
+		}
 	}
 	if backup, err := config.Backup(*cfgPath); err == nil && backup != "" {
 		printBackup(cfg, backup)
@@ -438,6 +470,7 @@ var helpEntries = []helpEntry{
 	{"flowguard doctor", "检查配置、vnStat、tc、网卡和服务", "Diagnose config, vnStat, tc, interfaces, and service"},
 	{"flowguard modify --allowance 1000GB", "修改配置并自动备份", "Update config with automatic backup"},
 	{"flowguard modify --language zh", "切换后续命令和通知输出语言", "Switch later command and notification output language"},
+	{"flowguard modify --reset-recent-baseline", "重设今日/本周基线（升级到含日/周基线版本后跑一次）", "Recapture today/this-week baselines (run once after upgrading)"},
 	{"flowguard topup 100GB", "购买额外流量后追加额度，并立即重新评估/解除限速", "Add purchased traffic allowance, then immediately recheck/unlimit"},
 	{"flowguard topup 100", "同上；裸数字默认单位为 GB", "Same as above; bare numbers default to GB"},
 	{"flowguard rollback", "回滚到最近一次配置备份", "Restore latest config backup"},
@@ -549,6 +582,8 @@ func cmdDoctor(args []string) error {
 		}
 		_, usageErr := traffic.ReadUsage(cfg, time.Now())
 		check("vnstat usage", usageErr)
+		check("install baseline date", baselineDateCheck(cfg))
+		check("vnstat reset detection", vnstatResetCheck(cfg))
 	}
 	if util.CommandExists("systemctl") {
 		_, serviceErr := util.Run(10*time.Second, "systemctl", "is-active", "flowguard")
@@ -607,6 +642,46 @@ func interfaceCheck(name string) error {
 func nilIfNotUnknown(value string) error {
 	if value == "unknown" {
 		return fmt.Errorf("tc status unknown")
+	}
+	return nil
+}
+
+func baselineDateCheck(cfg config.Config) error {
+	if cfg.BaselineAt == "" {
+		return fmt.Errorf("baseline_at not set; run `sudo flowguard modify --reset-recent-baseline` once after upgrading to populate today/this-week baseline")
+	}
+	if _, err := time.Parse("2006-01-02", cfg.BaselineAt); err != nil {
+		return fmt.Errorf("baseline_at %q is not a YYYY-MM-DD date: %w", cfg.BaselineAt, err)
+	}
+	return nil
+}
+
+func vnstatResetCheck(cfg config.Config) error {
+	now := time.Now()
+	currentPeriod := traffic.CurrentPeriod(now, cfg.PeriodDay)
+	if cfg.InitialPeriod != "" && cfg.InitialPeriod != currentPeriod {
+		return nil
+	}
+	// Without baseline values to compare against, this check has nothing to
+	// say (manual configs, fresh installs before setInstallBaseline ran, or
+	// older versions). Stay silent rather than report false positives.
+	if cfg.BaselineRXBytes == 0 && cfg.BaselineTXBytes == 0 {
+		return nil
+	}
+	stripped := cfg
+	stripped.BaselineRXBytes = 0
+	stripped.BaselineTXBytes = 0
+	stripped.InitialRXBytes = 0
+	stripped.InitialTXBytes = 0
+	rawUsage, err := traffic.ReadUsage(stripped, now)
+	if err != nil {
+		return fmt.Errorf("could not read raw vnStat monthly: %w", err)
+	}
+	if rawUsage.RXBytes < cfg.BaselineRXBytes || rawUsage.TXBytes < cfg.BaselineTXBytes {
+		return fmt.Errorf("vnstat monthly total (RX=%s, TX=%s) is below install baseline (RX=%s, TX=%s); vnStat database may have been reset; consider `sudo flowguard modify --reset-recent-baseline` and review allowance accounting",
+			util.FormatBytes(rawUsage.RXBytes), util.FormatBytes(rawUsage.TXBytes),
+			util.FormatBytes(cfg.BaselineRXBytes), util.FormatBytes(cfg.BaselineTXBytes),
+		)
 	}
 	return nil
 }
@@ -685,14 +760,29 @@ func cmdStatus(args []string) error {
 }
 
 type statusReport struct {
-	Config         map[string]any       `json:"config"`
-	Usage          traffic.Usage        `json:"usage"`
-	RecentUsage    *traffic.RecentUsage `json:"recent_usage,omitempty"`
-	State          config.State         `json:"state"`
-	Decision       traffic.Decision     `json:"decision"`
-	RemainingBytes uint64               `json:"remaining_bytes"`
-	DeltaBytes     map[string]uint64    `json:"delta_bytes"`
-	TC             map[string]string    `json:"tc"`
+	Config               map[string]any      `json:"config"`
+	Usage                traffic.Usage       `json:"usage"`
+	RecentUsage          traffic.RecentUsage `json:"recent_usage"`
+	RecentUsageAvailable bool                `json:"recent_usage_available"`
+	RecentUsageError     string              `json:"recent_usage_error,omitempty"`
+	Forecast             usageForecast       `json:"forecast"`
+	State                config.State        `json:"state"`
+	Decision             traffic.Decision    `json:"decision"`
+	RemainingBytes       uint64              `json:"remaining_bytes"`
+	DeltaBytes           map[string]uint64   `json:"delta_bytes"`
+	TC                   map[string]string   `json:"tc"`
+}
+
+type usageForecast struct {
+	Available           bool    `json:"available"`
+	AvgPerDayBytes      uint64  `json:"avg_per_day_bytes"`
+	WindowDays          int     `json:"window_days"`
+	WindowSource        string  `json:"window_source"`
+	DaysRemaining       int     `json:"days_remaining"`
+	PredictedTotalBytes uint64  `json:"predicted_total_bytes"`
+	PredictedPercent    float64 `json:"predicted_percent"`
+	DaysToSoftLimit     int     `json:"days_to_soft_limit"`
+	SoftLimitReached    bool    `json:"soft_limit_reached"`
 }
 
 func printStatus(cfg config.Config, statePath string, jsonOutput bool, verbose bool) error {
@@ -709,8 +799,12 @@ func printStatus(cfg config.Config, statePath string, jsonOutput bool, verbose b
 	report := buildStatusReport(cfg, usage, state, decision)
 	recent, recentErr := traffic.ReadRecentUsage(cfg, now)
 	if recentErr == nil {
-		report.RecentUsage = &recent
+		report.RecentUsage = recent
+		report.RecentUsageAvailable = true
+	} else {
+		report.RecentUsageError = recentErr.Error()
 	}
+	report.Forecast = computeForecast(cfg, usage, recent, recentErr == nil, now)
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -739,10 +833,13 @@ func printStatusDashboard(cfg config.Config, report statusReport, recentErr erro
 		fmt.Printf("%-10s %s\n", "剩余", util.FormatBytes(report.RemainingBytes))
 		fmt.Println()
 		fmt.Println(statusSection("近期计费用量"))
-		printRecentUsageDashboard(report.RecentUsage, true)
+		printRecentUsageDashboard(report.RecentUsage, report.RecentUsageAvailable, true)
 		if recentErr != nil {
 			fmt.Printf("  说明      近期统计暂不可用（可用 --verbose 查看原因）\n")
 		}
+		fmt.Println()
+		fmt.Println(statusSection("预测"))
+		printForecastDashboard(report.Forecast, true)
 		fmt.Println()
 		fmt.Println(statusSection("流量方向"))
 		fmt.Printf("  %-8s %s\n", "入站", util.FormatBytes(usage.RXBytes))
@@ -764,10 +861,13 @@ func printStatusDashboard(cfg config.Config, report statusReport, recentErr erro
 	fmt.Printf("%-12s %s\n", "Remaining", util.FormatBytes(report.RemainingBytes))
 	fmt.Println()
 	fmt.Println(statusSection("Recent billable usage"))
-	printRecentUsageDashboard(report.RecentUsage, false)
+	printRecentUsageDashboard(report.RecentUsage, report.RecentUsageAvailable, false)
 	if recentErr != nil {
 		fmt.Printf("  %-10s recent usage unavailable (use --verbose for details)\n", "Note")
 	}
+	fmt.Println()
+	fmt.Println(statusSection("Forecast"))
+	printForecastDashboard(report.Forecast, false)
 	fmt.Println()
 	fmt.Println(statusSection("Traffic direction"))
 	fmt.Printf("  %-10s %s\n", "Inbound", util.FormatBytes(usage.RXBytes))
@@ -805,8 +905,8 @@ func printStatusTechnicalDetails(cfg config.Config, report statusReport, recentE
 	}
 }
 
-func printRecentUsageDashboard(recent *traffic.RecentUsage, zh bool) {
-	if recent == nil {
+func printRecentUsageDashboard(recent traffic.RecentUsage, available bool, zh bool) {
+	if !available {
 		if zh {
 			fmt.Printf("  %-8s %s\n", "今天", "暂不可用")
 			fmt.Printf("  %-8s %s\n", "昨天", "暂不可用")
@@ -827,6 +927,141 @@ func printRecentUsageDashboard(recent *traffic.RecentUsage, zh bool) {
 	fmt.Printf("  %-10s %s\n", "Today", util.FormatBytes(recent.Today.BillableBytes))
 	fmt.Printf("  %-10s %s\n", "Yesterday", util.FormatBytes(recent.Yesterday.BillableBytes))
 	fmt.Printf("  %-10s %s  (starts Monday)\n", "This week", util.FormatBytes(recent.ThisWeek.BillableBytes))
+}
+
+func printForecastDashboard(f usageForecast, zh bool) {
+	if !f.Available {
+		if zh {
+			fmt.Printf("  %-8s %s\n", "状态", "数据不足，暂不预测")
+		} else {
+			fmt.Printf("  %-10s %s\n", "Status", "insufficient data")
+		}
+		return
+	}
+	if zh {
+		fmt.Printf("  %-8s %s/天（依据：%s）\n", "日均", util.FormatBytes(f.AvgPerDayBytes), forecastWindowText(f.WindowSource, true))
+		fmt.Printf("  %-8s %s（约 %.1f%%，剩余 %d 天）\n", "本月预计", util.FormatBytes(f.PredictedTotalBytes), f.PredictedPercent, f.DaysRemaining)
+		if f.SoftLimitReached {
+			fmt.Printf("  %-8s %s\n", "软限速", "已达到软限速阈值")
+		} else if f.AvgPerDayBytes == 0 {
+			fmt.Printf("  %-8s %s\n", "软限速", "按当前用量短期不会触发")
+		} else if f.DaysToSoftLimit <= 0 {
+			fmt.Printf("  %-8s %s\n", "软限速", "按当前用量本周期内不会触发")
+		} else {
+			fmt.Printf("  %-8s 约 %d 天后\n", "软限速", f.DaysToSoftLimit)
+		}
+		return
+	}
+	fmt.Printf("  %-10s %s/day (based on %s)\n", "Avg/day", util.FormatBytes(f.AvgPerDayBytes), forecastWindowText(f.WindowSource, false))
+	fmt.Printf("  %-10s %s (~%.1f%%, %d days left)\n", "Month est.", util.FormatBytes(f.PredictedTotalBytes), f.PredictedPercent, f.DaysRemaining)
+	if f.SoftLimitReached {
+		fmt.Printf("  %-10s soft limit already reached\n", "Soft ETA")
+	} else if f.AvgPerDayBytes == 0 {
+		fmt.Printf("  %-10s no soft-limit ETA at current rate\n", "Soft ETA")
+	} else if f.DaysToSoftLimit <= 0 {
+		fmt.Printf("  %-10s soft limit will not trigger this period\n", "Soft ETA")
+	} else {
+		fmt.Printf("  %-10s ~%d days\n", "Soft ETA", f.DaysToSoftLimit)
+	}
+}
+
+func forecastWindowText(source string, zh bool) string {
+	if zh {
+		switch source {
+		case "this_week":
+			return "本周用量"
+		case "today":
+			return "今天用量"
+		case "yesterday":
+			return "昨天用量"
+		}
+		return source
+	}
+	switch source {
+	case "this_week":
+		return "this week"
+	case "today":
+		return "today"
+	case "yesterday":
+		return "yesterday"
+	}
+	return source
+}
+
+func computeForecast(cfg config.Config, usage traffic.Usage, recent traffic.RecentUsage, recentAvailable bool, now time.Time) usageForecast {
+	f := usageForecast{}
+	periodStart := traffic.CurrentPeriodStart(now, cfg.PeriodDay)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	periodEnd := periodStart.AddDate(0, 1, -1)
+	totalDays := int(periodEnd.Sub(periodStart).Hours()/24) + 1
+	daysElapsed := int(today.Sub(periodStart).Hours()/24) + 1
+	if daysElapsed < 1 {
+		daysElapsed = 1
+	}
+	if daysElapsed > totalDays {
+		daysElapsed = totalDays
+	}
+	daysRemaining := totalDays - daysElapsed
+	if daysRemaining < 0 {
+		daysRemaining = 0
+	}
+	f.DaysRemaining = daysRemaining
+	if !recentAvailable {
+		return f
+	}
+	avg, window, source := pickForecastWindow(now, recent)
+	if avg == 0 || window == 0 {
+		return f
+	}
+	f.Available = true
+	f.AvgPerDayBytes = avg
+	f.WindowDays = window
+	f.WindowSource = source
+	predicted := saturatingAddU64(usage.BillableBytes, avg*uint64(daysRemaining))
+	f.PredictedTotalBytes = predicted
+	if cfg.AllowanceBytes > 0 {
+		f.PredictedPercent = float64(predicted) * 100 / float64(cfg.AllowanceBytes)
+	}
+	softBytes := uint64(0)
+	if cfg.AllowanceBytes > 0 && cfg.Thresholds.SoftPercent > 0 {
+		softBytes = uint64(float64(cfg.AllowanceBytes) * cfg.Thresholds.SoftPercent / 100)
+	}
+	if softBytes > 0 {
+		if usage.BillableBytes >= softBytes {
+			f.SoftLimitReached = true
+		} else {
+			remainingToSoft := softBytes - usage.BillableBytes
+			daysToSoft := int((remainingToSoft + avg - 1) / avg)
+			if daysToSoft > daysRemaining {
+				f.DaysToSoftLimit = 0
+			} else {
+				f.DaysToSoftLimit = daysToSoft
+			}
+		}
+	}
+	return f
+}
+
+func pickForecastWindow(now time.Time, recent traffic.RecentUsage) (uint64, int, string) {
+	weekday := int(now.Weekday())
+	weekDays := ((weekday + 6) % 7) + 1
+	if recent.ThisWeek.BillableBytes > 0 && weekDays > 0 {
+		return recent.ThisWeek.BillableBytes / uint64(weekDays), weekDays, "this_week"
+	}
+	if recent.Today.BillableBytes > 0 {
+		return recent.Today.BillableBytes, 1, "today"
+	}
+	if recent.Yesterday.BillableBytes > 0 {
+		return recent.Yesterday.BillableBytes, 1, "yesterday"
+	}
+	return 0, 0, ""
+}
+
+func saturatingAddU64(a uint64, b uint64) uint64 {
+	if ^uint64(0)-a < b {
+		return ^uint64(0)
+	}
+	return a + b
 }
 
 func statusTitle(text string) string {
@@ -1090,9 +1325,10 @@ func pathsFromFlags(name string, args []string) (string, string, error) {
 }
 
 func evaluateOnce(cfg config.Config, statePath string, sendNotifications bool) error {
-	usage, err := traffic.ReadUsage(cfg, time.Now())
+	now := time.Now()
+	usage, err := traffic.ReadUsage(cfg, now)
 	if err != nil {
-		state, stateErr := config.LoadState(statePath, traffic.CurrentPeriod(time.Now(), cfg.PeriodDay))
+		state, stateErr := config.LoadState(statePath, traffic.CurrentPeriod(now, cfg.PeriodDay))
 		if stateErr == nil && sendErrorNotification(cfg, statePath, state, "vnstat", "FlowGuard: vnStat read failed: "+err.Error(), sendNotifications) == nil {
 			return err
 		}
@@ -1117,7 +1353,8 @@ func evaluateOnce(cfg config.Config, statePath string, sendNotifications bool) e
 		state.CurrentLimitRate = ""
 		state.AppliedLimitKey = ""
 		if sendNotifications {
-			_ = (notify.Notifier{Config: cfg}).Send(formatDryRunNotification(cfg, usage, decision))
+			recent := loadRecentForNotification(cfg, now)
+			_ = (notify.Notifier{Config: cfg}).Send(formatDryRunNotification(cfg, usage, decision, recent))
 		}
 		return config.SaveState(statePath, state)
 	}
@@ -1141,8 +1378,8 @@ func evaluateOnce(cfg config.Config, statePath string, sendNotifications bool) e
 		desiredLimitKey = ""
 	}
 	if sendNotifications && shouldNotify(state, decision) {
-		msg := formatNotification(cfg, usage, decision)
-		now := time.Now()
+		recent := loadRecentForNotification(cfg, now)
+		msg := formatNotification(cfg, usage, decision, recent)
 		if isErrorCoolingDown(state, "notify", now) {
 			// Preserve LastErrorAt so the retry window can expire.
 		} else if err := (notify.Notifier{Config: cfg}).Send(msg); err != nil {
@@ -1233,11 +1470,22 @@ func removeLimits(cfg config.Config) error {
 	return nil
 }
 
-func formatDryRunNotification(cfg config.Config, usage traffic.Usage, decision traffic.Decision) string {
-	if isZH(cfg) {
-		return formatNotification(cfg, usage, decision) + "\n首次限速保护：本轮只通知，不执行 tc 限速。下次仍满足条件时会实际限速。"
+// loadRecentForNotification fetches recent usage best-effort. Errors are
+// swallowed so notifications never fail just because vnStat hasn't built up
+// daily history yet; the formatter handles a zero-value RecentUsage.
+func loadRecentForNotification(cfg config.Config, now time.Time) traffic.RecentUsage {
+	recent, err := traffic.ReadRecentUsage(cfg, now)
+	if err != nil {
+		return traffic.RecentUsage{}
 	}
-	return formatNotification(cfg, usage, decision) + "\nFirst-limit dry run: no tc limit applied this cycle. Next matching cycle will apply the limit."
+	return recent
+}
+
+func formatDryRunNotification(cfg config.Config, usage traffic.Usage, decision traffic.Decision, recent traffic.RecentUsage) string {
+	if isZH(cfg) {
+		return formatNotification(cfg, usage, decision, recent) + "\n首次限速保护：本轮只通知，不执行 tc 限速。下次仍满足条件时会实际限速。"
+	}
+	return formatNotification(cfg, usage, decision, recent) + "\nFirst-limit dry run: no tc limit applied this cycle. Next matching cycle will apply the limit."
 }
 
 func shouldNotify(state config.State, decision traffic.Decision) bool {
@@ -1255,7 +1503,7 @@ func notificationKey(decision traffic.Decision) string {
 	return decision.Level + ":" + decision.LimitRate
 }
 
-func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic.Decision) string {
+func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic.Decision, recent traffic.RecentUsage) string {
 	var b strings.Builder
 	if isZH(cfg) {
 		fmt.Fprintf(&b, "FlowGuard：%s\n\n", decision.Level)
@@ -1274,6 +1522,10 @@ func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic
 		fmt.Fprintf(&b, "总流量：%s\n", util.FormatBytes(usage.TotalBytes))
 		fmt.Fprintf(&b, "入站：%s\n", util.FormatBytes(usage.RXBytes))
 		fmt.Fprintf(&b, "出站：%s\n", util.FormatBytes(usage.TXBytes))
+		if recent.ThisWeek.BillableBytes > 0 || recent.Today.BillableBytes > 0 {
+			fmt.Fprintf(&b, "今日新增：%s\n", util.FormatBytes(recent.Today.BillableBytes))
+			fmt.Fprintf(&b, "本周累计：%s\n", util.FormatBytes(recent.ThisWeek.BillableBytes))
+		}
 		if decision.LimitRate != "" {
 			fmt.Fprintf(&b, "限速：%s\n", decision.LimitRate)
 		} else {
@@ -1297,6 +1549,10 @@ func formatNotification(cfg config.Config, usage traffic.Usage, decision traffic
 	fmt.Fprintf(&b, "Total: %s\n", util.FormatBytes(usage.TotalBytes))
 	fmt.Fprintf(&b, "Inbound: %s\n", util.FormatBytes(usage.RXBytes))
 	fmt.Fprintf(&b, "Outbound: %s\n", util.FormatBytes(usage.TXBytes))
+	if recent.ThisWeek.BillableBytes > 0 || recent.Today.BillableBytes > 0 {
+		fmt.Fprintf(&b, "Today: %s\n", util.FormatBytes(recent.Today.BillableBytes))
+		fmt.Fprintf(&b, "This week: %s\n", util.FormatBytes(recent.ThisWeek.BillableBytes))
+	}
 	if decision.LimitRate != "" {
 		fmt.Fprintf(&b, "Limit: %s\n", decision.LimitRate)
 	} else {

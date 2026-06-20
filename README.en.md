@@ -87,6 +87,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
 | `flowguard modify --language en` | Switch later command and notification output language |
+| `flowguard modify --reset-recent-baseline` | Run once after upgrading to recapture today/this-week baselines |
 | `flowguard topup 100GB` | Add purchased traffic allowance, then immediately recheck/unlimit |
 | `flowguard topup 100` | Same as above; bare numbers default to `GB` |
 | `flowguard rollback` | Restore latest config backup |
@@ -97,7 +98,17 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |
 | `flowguard uninstall --remove-vnstat=true` | Also remove configured interfaces from the vnStat database |
 
-`flowguard status` shows a user-facing summary by default, including today, yesterday, and this week (Monday start) billable usage; raw `tc` output is only shown with `--verbose`.
+`flowguard status` shows a user-facing summary by default, including today, yesterday, this week (Monday start), a month-end estimate, and soft-limit ETA; raw `tc` output is only shown with `--verbose`.
+
+## Data accounting
+
+FlowGuard reports usage with two consistent rules so pre-install vnStat history is never counted:
+
+- **Period total** = current vnStat monthly − install baseline (`baseline_rx_bytes` / `baseline_tx_bytes`) + your declared initial usage (`initial_rx_bytes` / `initial_tx_bytes`).
+- **Today / Yesterday / This week (natural week, starts Monday)** = current vnStat daily − install day/week baseline (`baseline_day_*` / `baseline_week_*`).
+- Traffic that occurred before FlowGuard was installed is excluded from FlowGuard accounting.
+- When `recent_usage_available=false`, vnStat lacks daily data; recent fields are zero and period total is unaffected.
+- Existing installs upgrading to `v0.1.13+` should run `sudo flowguard modify --reset-recent-baseline` once so today/this-week stop including pre-install daily traffic.
 
 ## Non-Interactive Install
 

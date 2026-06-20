@@ -96,6 +96,30 @@ func TestRecentUsageWeekStartsMonday(t *testing.T) {
 	}
 }
 
+func TestRecentUsageSubtractsInstallBaseline(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.BaselineAt = "2026-06-20"
+	cfg.BaselineDayRXBytes = 10
+	cfg.BaselineDayTXBytes = 20
+	cfg.BaselineWeekRXBytes = 100
+	cfg.BaselineWeekTXBytes = 200
+	today := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	rx, tx := applyDailyBaseline(cfg, today, 15, 25)
+	if rx != 5 || tx != 5 {
+		t.Fatalf("daily baseline rx=%d tx=%d", rx, tx)
+	}
+	weekStart := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	rx, tx = applyWeekBaseline(cfg, weekStart, today, 130, 260)
+	if rx != 30 || tx != 60 {
+		t.Fatalf("week baseline rx=%d tx=%d", rx, tx)
+	}
+	yesterday := time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
+	rx, tx = applyDailyBaseline(cfg, yesterday, 99, 99)
+	if rx != 0 || tx != 0 {
+		t.Fatalf("pre-install daily rx=%d tx=%d", rx, tx)
+	}
+}
+
 func TestDecide(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AllowanceBytes = 1000
