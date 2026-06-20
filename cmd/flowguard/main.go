@@ -34,6 +34,8 @@ func main() {
 		err = cmdStatus(os.Args[2:])
 	case "modify":
 		err = cmdModify(os.Args[2:])
+	case "topup":
+		err = cmdTopup(os.Args[2:])
 	case "config-example":
 		err = cmdConfigExample(os.Args[2:])
 	case "rollback":
@@ -202,6 +204,70 @@ func visitedFlags(fs *flag.FlagSet) map[string]bool {
 	return visited
 }
 
+func cmdTopup(args []string) error {
+	fs := flag.NewFlagSet("topup", flag.ExitOnError)
+	cfgPath := fs.String("config", config.DefaultConfigPath, "config path")
+	statePath := fs.String("state", config.DefaultStatePath, "state path")
+	amountFlag := fs.String("amount", "", "extra traffic amount, e.g. 100GB; bare numbers use GB")
+	checkNow := fs.Bool("check-now", true, "run one check after updating allowance")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	amount := *amountFlag
+	if amount == "" && fs.NArg() > 0 {
+		amount = fs.Arg(0)
+	}
+	if amount == "" {
+		return fmt.Errorf("topup amount is required, e.g. flowguard topup 100GB")
+	}
+	amount = withDefaultByteUnit(amount, "GB")
+	extraBytes, err := util.ParseBytes(amount)
+	if err != nil {
+		return err
+	}
+	if extraBytes == 0 {
+		return fmt.Errorf("topup amount must be greater than zero")
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	oldAllowance := cfg.AllowanceBytes
+	if ^uint64(0)-cfg.AllowanceBytes < extraBytes {
+		return fmt.Errorf("allowance overflow")
+	}
+	cfg.AllowanceBytes += extraBytes
+	if backup, err := config.Backup(*cfgPath); err == nil && backup != "" {
+		fmt.Printf("Backup: %s\n", backup)
+	} else if err != nil {
+		return err
+	}
+	if err := config.Save(*cfgPath, cfg); err != nil {
+		return err
+	}
+	fmt.Printf("Allowance increased: %s + %s = %s\n", util.FormatBytes(oldAllowance), util.FormatBytes(extraBytes), util.FormatBytes(cfg.AllowanceBytes))
+	if *checkNow {
+		if err := evaluateOnce(cfg, *statePath, true); err != nil {
+			return fmt.Errorf("topup saved, but immediate check failed: %w", err)
+		}
+		fmt.Println("Rechecked current usage and limit state.")
+	}
+	return nil
+}
+
+func withDefaultByteUnit(value string, unit string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return trimmed
+	}
+	for _, r := range trimmed {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			return trimmed
+		}
+	}
+	return trimmed + unit
+}
+
 func cmdUninstall(args []string) error {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
 	cfgPath := fs.String("config", config.DefaultConfigPath, "config path")
@@ -300,9 +366,10 @@ func usage() {
 	fmt.Println(`flowguard commands:
   install       install dependencies, config, and service
   run           run monitor loop
-  status        print current usage and limit status
-  modify        update config values
-  config-example print example config
+	  status        print current usage and limit status
+	  modify        update config values
+	  topup         add purchased traffic allowance and recheck
+	  config-example print example config
   rollback      restore latest config backup
   doctor        diagnose config, vnStat, tc, and service
   uninstall     remove service and optionally files

@@ -84,6 +84,8 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard status --json` | 输出适合脚本读取的 JSON |
 | `flowguard doctor` | 检查配置、`vnStat`、`tc`、网卡和服务 |
 | `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
+| `flowguard topup 100GB` | 购买额外流量后追加额度，并立即重新评估/解除限速 |
+| `flowguard topup 100` | 同上；裸数字默认单位为 `GB` |
 | `flowguard rollback` | 回滚到最近一次配置备份 |
 | `flowguard upgrade` | 下载、校验并升级到最新 Release |
 | `flowguard upgrade --version v0.1.4` | 升级到指定版本 |

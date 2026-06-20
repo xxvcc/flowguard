@@ -121,6 +121,44 @@ func TestVisitedFlagsDetectsExplicitZero(t *testing.T) {
 	}
 }
 
+func TestWithDefaultByteUnit(t *testing.T) {
+	tests := map[string]string{
+		"100":   "100GB",
+		"1.5":   "1.5GB",
+		"100GB": "100GB",
+		" 20 ":  "20GB",
+	}
+	for input, want := range tests {
+		if got := withDefaultByteUnit(input, "GB"); got != want {
+			t.Fatalf("withDefaultByteUnit(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestCmdTopupAddsAllowance(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	statePath := filepath.Join(dir, "state.json")
+	cfg := config.DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.Interfaces = []string{"eth0"}
+	cfg.AllowanceBytes = 1000 * 1000 * 1000
+	if err := config.Save(cfgPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdTopup([]string{"--config", cfgPath, "--state", statePath, "--check-now=false", "100"}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(101) * 1000 * 1000 * 1000
+	if updated.AllowanceBytes != want {
+		t.Fatalf("allowance=%d, want %d", updated.AllowanceBytes, want)
+	}
+}
+
 func TestCmdUpgradeDryRun(t *testing.T) {
 	if err := cmdUpgrade([]string{"--dry-run", "--version", "v0.1.4", "--base-url", "https://example.com/releases", "--install-dir", t.TempDir(), "--no-restart"}); err != nil {
 		t.Fatal(err)
