@@ -82,6 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | --- | --- |
 | `flowguard status` | 查看当前流量、决策和 `tc` 状态 |
 | `flowguard status --json` | 输出适合脚本读取的 JSON |
+| `flowguard help` | 按配置语言显示所有命令和用途 |
 | `flowguard doctor` | 检查配置、`vnStat`、`tc`、网卡和服务 |
 | `flowguard modify --allowance 1000GB` | 修改配置并自动备份 |
 | `flowguard modify --language zh` | 切换后续命令和通知输出语言 |
@@ -89,7 +90,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 | `flowguard topup 100` | 同上；裸数字默认单位为 `GB` |
 | `flowguard rollback` | 回滚到最近一次配置备份 |
 | `flowguard upgrade` | 下载、校验并升级到最新 Release |
-| `flowguard upgrade --version v0.1.4` | 升级到指定版本 |
+| `flowguard upgrade --version vX.Y.Z` | 升级到指定版本 |
 | `flowguard test-notify` | 发送 Telegram 测试通知 |
 | `flowguard uninstall` | 卸载服务并删除配置、状态和二进制 |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | 卸载服务但保留配置、状态和二进制 |

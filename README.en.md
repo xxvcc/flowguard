@@ -82,6 +82,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | --- | --- |
 | `flowguard status` | Show current traffic, decision, and `tc` state |
 | `flowguard status --json` | Script-friendly status output |
+| `flowguard help` | Show all commands and purposes using the configured language |
 | `flowguard doctor` | Diagnose config, `vnStat`, `tc`, interfaces, and service |
 | `flowguard modify --allowance 1000GB` | Update config with automatic backup |
 | `flowguard modify --language en` | Switch later command and notification output language |
@@ -89,7 +90,7 @@ Use `↑/↓` to move, `Enter` to confirm, or number keys as shortcuts. Non-TTY 
 | `flowguard topup 100` | Same as above; bare numbers default to `GB` |
 | `flowguard rollback` | Restore latest config backup |
 | `flowguard upgrade` | Download, verify, and upgrade to the latest Release |
-| `flowguard upgrade --version v0.1.4` | Upgrade to a specific version |
+| `flowguard upgrade --version vX.Y.Z` | Upgrade to a specific version |
 | `flowguard test-notify` | Send a Telegram test notification |
 | `flowguard uninstall` | Remove service, config, state, and binary |
 | `flowguard uninstall --keep-config=true --keep-binary=true` | Remove service while keeping config, state, and binary |

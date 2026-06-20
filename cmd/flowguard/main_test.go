@@ -194,6 +194,17 @@ func TestFormatNotificationUsesChinese(t *testing.T) {
 	}
 }
 
+func TestHelpTextLanguages(t *testing.T) {
+	zh := helpText("zh")
+	if !strings.Contains(zh, "FlowGuard 命令") || !strings.Contains(zh, "flowguard topup 100GB") || !strings.Contains(zh, "购买额外流量") {
+		t.Fatalf("Chinese help missing content: %s", zh)
+	}
+	en := helpText("en")
+	if !strings.Contains(en, "FlowGuard commands") || !strings.Contains(en, "flowguard topup 100GB") || !strings.Contains(en, "Add purchased traffic") {
+		t.Fatalf("English help missing content: %s", en)
+	}
+}
+
 func TestCmdUpgradeDryRun(t *testing.T) {
 	if err := cmdUpgrade([]string{"--dry-run", "--version", "v0.1.4", "--base-url", "https://example.com/releases", "--install-dir", t.TempDir(), "--no-restart"}); err != nil {
 		t.Fatal(err)
