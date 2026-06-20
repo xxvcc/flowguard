@@ -27,6 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 ```
 
 The installer downloads the latest GitHub Release, verifies `checksums.txt`, installs the `flowguard` binary, installs dependencies, and starts the setup wizard.
+Even when run through `curl | sudo sh`, the setup wizard reads input from the terminal.
 
 > Security note: `curl | sudo sh` is intended for quick installs on new self-managed VPS hosts. For production, download and review the script first, or pin `FLOWGUARD_VERSION=vX.Y.Z`; only use `FLOWGUARD_BASE_URL` mirrors that you trust.
 

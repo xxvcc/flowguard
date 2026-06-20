@@ -27,6 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 ```
 
 安装脚本会下载最新 GitHub Release，校验 `checksums.txt`，安装 `flowguard` 二进制，安装依赖，并启动安装向导。
+即使通过 `curl | sudo sh` 管道运行，安装向导也会从终端读取输入。
 
 > 安全提示：`curl | sudo sh` 适合全新自管 VPS 的快速安装。生产环境建议先下载并审阅脚本，或固定 `FLOWGUARD_VERSION=vX.Y.Z` 后安装；使用 `FLOWGUARD_BASE_URL` 镜像时，请只使用你信任的发布源。
 

@@ -151,4 +151,7 @@ if [ "$SKIP_SETUP" = "1" ] || [ "$SKIP_SETUP" = "true" ]; then
 fi
 
 echo "Starting interactive installer..."
+if [ -r /dev/tty ]; then
+  exec $SUDO "$INSTALL_DIR/$BIN_NAME" install "$@" < /dev/tty
+fi
 exec $SUDO "$INSTALL_DIR/$BIN_NAME" install "$@"
