@@ -120,6 +120,24 @@ func TestRecentUsageSubtractsInstallBaseline(t *testing.T) {
 	}
 }
 
+func TestThisWeekWindowDaysStartsAtBaselineWithinWeek(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.BaselineAt = "2026-06-20" // Saturday
+	weekStart := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	today := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	if got := thisWeekWindowDays(cfg, weekStart, today); got != 1 {
+		t.Fatalf("window days=%d, want 1", got)
+	}
+	cfg.BaselineAt = "2026-06-18"
+	if got := thisWeekWindowDays(cfg, weekStart, today); got != 3 {
+		t.Fatalf("window days=%d, want 3", got)
+	}
+	cfg.BaselineAt = "2026-06-01"
+	if got := thisWeekWindowDays(cfg, weekStart, today); got != 6 {
+		t.Fatalf("window days=%d, want full week-to-date 6", got)
+	}
+}
+
 func TestDecide(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AllowanceBytes = 1000

@@ -475,6 +475,11 @@ func setInstallBaseline(cfg *config.Config) error {
 	baselineConfig.InitialTXBytes = 0
 	baselineConfig.BaselineRXBytes = 0
 	baselineConfig.BaselineTXBytes = 0
+	baselineConfig.BaselineAt = ""
+	baselineConfig.BaselineDayRXBytes = 0
+	baselineConfig.BaselineDayTXBytes = 0
+	baselineConfig.BaselineWeekRXBytes = 0
+	baselineConfig.BaselineWeekTXBytes = 0
 	now := time.Now()
 	var lastErr error
 	for attempt := 1; attempt <= 6; attempt++ {
@@ -483,7 +488,7 @@ func setInstallBaseline(cfg *config.Config) error {
 			cfg.BaselineRXBytes = usage.RXBytes
 			cfg.BaselineTXBytes = usage.TXBytes
 			cfg.BaselineAt = now.Format("2006-01-02")
-			if recent, recentErr := traffic.ReadRecentUsage(baselineConfig, now); recentErr == nil {
+			if recent, recentErr := traffic.ReadRawRecentUsage(baselineConfig, now); recentErr == nil {
 				cfg.BaselineDayRXBytes = recent.Today.RXBytes
 				cfg.BaselineDayTXBytes = recent.Today.TXBytes
 				cfg.BaselineWeekRXBytes = recent.ThisWeek.RXBytes
@@ -527,6 +532,9 @@ func installBinary() error {
 		return err
 	}
 	const installDir = "/usr/local/bin"
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(installDir, "flowguard.tmp.")
 	if err != nil {
 		return err

@@ -38,9 +38,10 @@ type UsageSummary struct {
 }
 
 type RecentUsage struct {
-	Today     UsageSummary `json:"today"`
-	Yesterday UsageSummary `json:"yesterday"`
-	ThisWeek  UsageSummary `json:"this_week"`
+	Today              UsageSummary `json:"today"`
+	Yesterday          UsageSummary `json:"yesterday"`
+	ThisWeek           UsageSummary `json:"this_week"`
+	ThisWeekWindowDays int          `json:"this_week_window_days"`
 }
 
 type Decision struct {
@@ -155,9 +156,10 @@ func ReadRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
 	yesterdayRX, yesterdayTX = applyDailyBaseline(cfg, yesterday, yesterdayRX, yesterdayTX)
 	weekRX, weekTX = applyWeekBaseline(cfg, weekStart, today, weekRX, weekTX)
 	return RecentUsage{
-		Today:     makeUsageSummary(cfg, todayRX, todayTX),
-		Yesterday: makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
-		ThisWeek:  makeUsageSummary(cfg, weekRX, weekTX),
+		Today:              makeUsageSummary(cfg, todayRX, todayTX),
+		Yesterday:          makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
+		ThisWeek:           makeUsageSummary(cfg, weekRX, weekTX),
+		ThisWeekWindowDays: thisWeekWindowDays(cfg, weekStart, today),
 	}, nil
 }
 
@@ -193,10 +195,38 @@ func readRawRecentUsage(cfg config.Config, now time.Time) (RecentUsage, error) {
 		return RecentUsage{}, err
 	}
 	return RecentUsage{
-		Today:     makeUsageSummary(cfg, todayRX, todayTX),
-		Yesterday: makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
-		ThisWeek:  makeUsageSummary(cfg, weekRX, weekTX),
+		Today:              makeUsageSummary(cfg, todayRX, todayTX),
+		Yesterday:          makeUsageSummary(cfg, yesterdayRX, yesterdayTX),
+		ThisWeek:           makeUsageSummary(cfg, weekRX, weekTX),
+		ThisWeekWindowDays: daysBetweenInclusive(weekStart, today),
 	}, nil
+}
+
+func thisWeekWindowDays(cfg config.Config, weekStart time.Time, today time.Time) int {
+	baselineDate, ok := baselineDate(cfg)
+	if !ok {
+		return daysBetweenInclusive(weekStart, today)
+	}
+	if dateKey(today) < dateKey(baselineDate) {
+		return 0
+	}
+	if dateKey(baselineDate) > dateKey(weekStart) {
+		return daysBetweenInclusive(baselineDate, today)
+	}
+	return daysBetweenInclusive(weekStart, today)
+}
+
+func daysBetweenInclusive(start time.Time, end time.Time) int {
+	start = dateOnly(start)
+	end = dateOnly(end)
+	if dateKey(end) < dateKey(start) {
+		return 0
+	}
+	days := 0
+	for cursor := start; dateKey(cursor) <= dateKey(end); cursor = cursor.AddDate(0, 0, 1) {
+		days++
+	}
+	return days
 }
 
 func applyDailyBaseline(cfg config.Config, date time.Time, rx uint64, tx uint64) (uint64, uint64) {

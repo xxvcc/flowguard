@@ -183,12 +183,24 @@ func TestCmdModifyUpdatesLanguage(t *testing.T) {
 	}
 }
 
+func TestOnlyResetRecentBaselineChange(t *testing.T) {
+	if !onlyResetRecentBaselineChange(map[string]bool{"reset-recent-baseline": true}) {
+		t.Fatal("expected reset-only change")
+	}
+	if !onlyResetRecentBaselineChange(map[string]bool{"reset-recent-baseline": true, "config": true, "state": true}) {
+		t.Fatal("expected reset-only change with path flags")
+	}
+	if onlyResetRecentBaselineChange(map[string]bool{"reset-recent-baseline": true, "allowance": true}) {
+		t.Fatal("allowance change should require normal restart behavior")
+	}
+}
+
 func TestFormatNotificationUsesChinese(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Interface = "eth0"
 	cfg.AllowanceBytes = 1000
 	cfg.Language = "zh"
-	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, traffic.RecentUsage{})
+	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, traffic.RecentUsage{}, true)
 	if !strings.Contains(msg, "流量额度") || !strings.Contains(msg, "剩余额度") {
 		t.Fatalf("notification not localized: %s", msg)
 	}
@@ -203,9 +215,20 @@ func TestFormatNotificationIncludesRecentUsage(t *testing.T) {
 		Today:    traffic.UsageSummary{RXBytes: 1, TXBytes: 1, TotalBytes: 2, BillableBytes: 2},
 		ThisWeek: traffic.UsageSummary{RXBytes: 10, TXBytes: 10, TotalBytes: 20, BillableBytes: 20},
 	}
-	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, recent)
+	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 900, TotalBytes: 900, RXBytes: 400, TXBytes: 500, Percent: 90}, traffic.Decision{Level: traffic.LevelWarn}, recent, true)
 	if !strings.Contains(msg, "今日新增") || !strings.Contains(msg, "本周累计") {
 		t.Fatalf("notification missing recent usage: %s", msg)
+	}
+}
+
+func TestFormatNotificationReportsUnavailableRecentUsage(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.AllowanceBytes = 1000
+	cfg.Language = "zh"
+	msg := formatNotification(cfg, traffic.Usage{BillableBytes: 100, TotalBytes: 100, RXBytes: 40, TXBytes: 60, Percent: 10}, traffic.Decision{Level: traffic.LevelNormal}, traffic.RecentUsage{}, false)
+	if !strings.Contains(msg, "近期统计：暂不可用") {
+		t.Fatalf("notification missing unavailable recent usage: %s", msg)
 	}
 }
 
@@ -216,7 +239,8 @@ func TestComputeForecastUsesWeekly(t *testing.T) {
 	cfg.Thresholds.SoftPercent = 80
 	usage := traffic.Usage{BillableBytes: 100}
 	recent := traffic.RecentUsage{
-		ThisWeek: traffic.UsageSummary{BillableBytes: 70, TotalBytes: 70},
+		ThisWeek:           traffic.UsageSummary{BillableBytes: 70, TotalBytes: 70},
+		ThisWeekWindowDays: 6,
 	}
 	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) // Saturday => 6 days into week
 	f := computeForecast(cfg, usage, recent, true, now)
@@ -234,6 +258,31 @@ func TestComputeForecastUsesWeekly(t *testing.T) {
 	}
 	if f.DaysToSoftLimit < 0 {
 		t.Fatalf("days to soft negative")
+	}
+}
+
+func TestComputeForecastUsesBaselineWeekWindow(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AllowanceBytes = 1000
+	cfg.PeriodDay = 1
+	cfg.Thresholds.SoftPercent = 80
+	usage := traffic.Usage{BillableBytes: 100}
+	recent := traffic.RecentUsage{
+		ThisWeek:           traffic.UsageSummary{BillableBytes: 70, TotalBytes: 70},
+		ThisWeekWindowDays: 1,
+	}
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	f := computeForecast(cfg, usage, recent, true, now)
+	if f.AvgPerDayBytes != 70 {
+		t.Fatalf("avg/day=%d, want 70", f.AvgPerDayBytes)
+	}
+}
+
+func TestCalendarDaysInclusiveUsesDates(t *testing.T) {
+	start := time.Date(2026, 6, 18, 0, 0, 0, 0, time.FixedZone("A", 8*3600))
+	end := time.Date(2026, 7, 17, 23, 0, 0, 0, time.FixedZone("B", -5*3600))
+	if got := calendarDaysInclusive(start, end); got != 30 {
+		t.Fatalf("calendar days=%d, want 30", got)
 	}
 }
 

@@ -6,6 +6,7 @@ VERSION="${FLOWGUARD_VERSION:-latest}"
 INSTALL_DIR="${FLOWGUARD_INSTALL_DIR:-/usr/local/bin}"
 BASE_URL="${FLOWGUARD_BASE_URL:-}"
 SKIP_SETUP="${FLOWGUARD_SKIP_SETUP:-0}"
+NO_RESTART="${FLOWGUARD_NO_RESTART:-0}"
 BIN_NAME="flowguard"
 TMP_DIR=""
 
@@ -105,7 +106,13 @@ check_size "$TMP_DIR/$asset" 104857600 "$asset"
 check_size "$TMP_DIR/$checksums" 1048576 "$checksums"
 
 (cd "$TMP_DIR" && awk -v asset="$asset" '$2 == asset { print; found=1 } END { exit found ? 0 : 1 }' "$checksums" | sha256sum -c -)
-tar -xzf "$TMP_DIR/$asset" -C "$TMP_DIR"
+tar -tzf "$TMP_DIR/$asset" > "$TMP_DIR/tar.list"
+tar_entry=$(awk '$0 == "flowguard" || $0 == "./flowguard" { print; found=1; exit } END { exit found ? 0 : 1 }' "$TMP_DIR/tar.list") || reject "$BIN_NAME not found in archive"
+bad_entry=$(awk '$0 != "flowguard" && $0 != "./flowguard" { print; exit }' "$TMP_DIR/tar.list")
+if [ -n "$bad_entry" ]; then
+  reject "archive contains unexpected entry: $bad_entry"
+fi
+tar -xzf "$TMP_DIR/$asset" -C "$TMP_DIR" "$tar_entry"
 if [ ! -f "$TMP_DIR/$BIN_NAME" ]; then
   reject "$BIN_NAME not found in archive"
 fi
@@ -134,7 +141,9 @@ $SUDO install -m 0755 "$TMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 
 echo "Installed $BIN_NAME to $INSTALL_DIR/$BIN_NAME"
 if [ "$SKIP_SETUP" = "1" ] || [ "$SKIP_SETUP" = "true" ]; then
-  if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files flowguard.service >/dev/null 2>&1; then
+  if [ "$NO_RESTART" = "1" ] || [ "$NO_RESTART" = "true" ]; then
+    echo "Skipped flowguard service restart."
+  elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files flowguard.service --no-legend 2>/dev/null | awk '$1 == "flowguard.service" { found=1 } END { exit found ? 0 : 1 }'; then
     if ! $SUDO systemctl restart flowguard; then
       if [ -f "$INSTALL_DIR/$BIN_NAME.bak" ]; then
         $SUDO cp -p "$INSTALL_DIR/$BIN_NAME.bak" "$INSTALL_DIR/$BIN_NAME"

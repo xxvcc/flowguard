@@ -81,9 +81,31 @@ func Restart() error {
 	if !util.CommandExists("systemctl") {
 		return nil
 	}
-	_, err := util.Run(30*time.Second, "systemctl", "restart", "flowguard")
-	if err != nil && strings.Contains(err.Error(), "not found") {
+	exists, err := unitExists()
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return nil
 	}
+	_, err = util.Run(30*time.Second, "systemctl", "restart", "flowguard")
 	return err
+}
+
+func unitExists() (bool, error) {
+	result, err := util.Run(10*time.Second, "systemctl", "list-unit-files", "flowguard.service", "--no-legend")
+	if err != nil {
+		return false, err
+	}
+	return unitListContainsFlowGuard(result.Stdout), nil
+}
+
+func unitListContainsFlowGuard(stdout string) bool {
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "flowguard.service" {
+			return true
+		}
+	}
+	return false
 }

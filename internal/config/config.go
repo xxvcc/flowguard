@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -135,8 +136,34 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
+	applyMissingThresholdDefaults(data, &cfg)
 	cfg.Normalize()
 	return cfg, cfg.Validate()
+}
+
+func applyMissingThresholdDefaults(data []byte, cfg *Config) {
+	var raw struct {
+		Thresholds map[string]json.RawMessage `json:"thresholds"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	defaults := DefaultConfig().Thresholds
+	if raw.Thresholds == nil {
+		cfg.Thresholds.WarnClearPercent = defaults.WarnClearPercent
+		cfg.Thresholds.SoftClearPercent = defaults.SoftClearPercent
+		cfg.Thresholds.HardClearPercent = defaults.HardClearPercent
+		return
+	}
+	if _, ok := raw.Thresholds["warn_clear_percent"]; !ok {
+		cfg.Thresholds.WarnClearPercent = defaults.WarnClearPercent
+	}
+	if _, ok := raw.Thresholds["soft_clear_percent"]; !ok {
+		cfg.Thresholds.SoftClearPercent = defaults.SoftClearPercent
+	}
+	if _, ok := raw.Thresholds["hard_clear_percent"]; !ok {
+		cfg.Thresholds.HardClearPercent = defaults.HardClearPercent
+	}
 }
 
 func (c *Config) Normalize() {
@@ -149,6 +176,7 @@ func (c *Config) Normalize() {
 	if len(c.Interfaces) == 0 && c.Interface != "" {
 		c.Interfaces = []string{c.Interface}
 	}
+	c.Interfaces = normalizeInterfaces(c.Interfaces)
 	if c.Interface == "" && len(c.Interfaces) > 0 {
 		c.Interface = c.Interfaces[0]
 	}
@@ -167,21 +195,26 @@ func (c *Config) Normalize() {
 	if c.Thresholds.HardPercent == 0 {
 		c.Thresholds.HardPercent = 95
 	}
-	if c.Thresholds.WarnClearPercent == 0 {
-		c.Thresholds.WarnClearPercent = 65
-	}
-	if c.Thresholds.SoftClearPercent == 0 {
-		c.Thresholds.SoftClearPercent = 80
-	}
-	if c.Thresholds.HardClearPercent == 0 {
-		c.Thresholds.HardClearPercent = 90
-	}
 	if c.Limits.SoftRate == "" {
 		c.Limits.SoftRate = "10mbit"
 	}
 	if c.Limits.HardRate == "" {
 		c.Limits.HardRate = "1mbit"
 	}
+}
+
+func normalizeInterfaces(values []string) []string {
+	seen := map[string]bool{}
+	var result []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func (c Config) Validate() error {

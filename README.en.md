@@ -108,6 +108,7 @@ FlowGuard reports usage with two consistent rules so pre-install vnStat history 
 - **Today / Yesterday / This week (natural week, starts Monday)** = current vnStat daily − install day/week baseline (`baseline_day_*` / `baseline_week_*`).
 - Traffic that occurred before FlowGuard was installed is excluded from FlowGuard accounting.
 - When `recent_usage_available=false`, vnStat lacks daily data; recent fields are zero and period total is unaffected.
+- `recent_usage.this_week_window_days` is the number of days covered by this-week usage; after recapturing a recent baseline, forecasts average from the baseline date.
 - Existing installs upgrading to `v0.1.13+` should run `sudo flowguard modify --reset-recent-baseline` once so today/this-week stop including pre-install daily traffic.
 
 ## Non-Interactive Install
@@ -177,14 +178,22 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
   sudo env FLOWGUARD_SKIP_SETUP=1 sh
 ```
 
+To replace the binary without automatically restarting the service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
+  sudo env FLOWGUARD_SKIP_SETUP=1 FLOWGUARD_NO_RESTART=1 sh
+```
+
 After installation, you can also use the built-in upgrade command:
 
 ```bash
 sudo flowguard upgrade
 sudo flowguard upgrade --version v0.1.4
+sudo flowguard upgrade --no-restart
 ```
 
-Upgrade replaces only the binary and restarts the service. It does not modify `/etc/flowguard/config.json` or `/var/lib/flowguard/state.json`.
+Upgrade replaces only the binary and restarts `flowguard.service` when it exists. If the built-in upgrade cannot restart the service, it rolls the binary back. It does not modify `/etc/flowguard/config.json` or `/var/lib/flowguard/state.json`.
 
 ## Configuration
 
