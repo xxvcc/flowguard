@@ -361,8 +361,42 @@ func TestStatusTextHelpers(t *testing.T) {
 	}
 }
 
+func TestAnyFlowGuardLimitPresentWithFakeTC(t *testing.T) {
+	dir := t.TempDir()
+	tcPath := filepath.Join(dir, "tc")
+	script := `#!/bin/sh
+if [ "$1 $2 $3" = "qdisc show dev" ]; then
+  echo "qdisc tbf 10f1: root refcnt 2 rate 1Mbit"
+  exit 0
+fi
+echo "unexpected tc args: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(tcPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FLOWGUARD_TEST_PATH", "1")
+	t.Setenv("PATH", dir)
+	cfg := config.DefaultConfig()
+	cfg.Interfaces = []string{"eth0"}
+	present, err := anyFlowGuardLimitPresent(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present {
+		t.Fatal("expected fake tc FlowGuard limit to be detected")
+	}
+	missing, err := anyFlowGuardLimitMissing(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing {
+		t.Fatal("expected fake tc FlowGuard limit to be present on every interface")
+	}
+}
+
 func TestCmdUpgradeDryRun(t *testing.T) {
-	if err := cmdUpgrade([]string{"--dry-run", "--version", "v0.1.4", "--base-url", "https://example.com/releases", "--install-dir", t.TempDir(), "--no-restart"}); err != nil {
+	if err := cmdUpgrade([]string{"--dry-run", "--version", "v0.1.4", "--base-url", "https://example.com/releases", "--install-dir", t.TempDir(), "--minisign-pubkey", "RWQfakepubkey", "--no-restart"}); err != nil {
 		t.Fatal(err)
 	}
 }

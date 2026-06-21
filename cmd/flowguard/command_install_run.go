@@ -16,6 +16,7 @@ func cmdInstall(args []string) error {
 	fs.BoolVar(&opts.Yes, "yes", false, "non-interactive install")
 	fs.StringVar(&opts.ConfigPath, "config", config.DefaultConfigPath, "config path")
 	fs.StringVar(&opts.StatePath, "state", config.DefaultStatePath, "state path")
+	fs.StringVar(&opts.InstallDir, "install-dir", "/usr/local/bin", "install directory")
 	fs.StringVar(&opts.Allowance, "allowance", "", "monthly allowance, e.g. 1000GB")
 	fs.StringVar(&opts.InitialTotal, "initial-total", "", "initial total used this period")
 	fs.StringVar(&opts.InitialRX, "initial-rx", "", "initial inbound used this period")

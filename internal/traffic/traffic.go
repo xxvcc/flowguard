@@ -136,6 +136,9 @@ func (s Snapshot) Usage(cfg config.Config, now time.Time) (Usage, error) {
 		tx = saturatingAdd(tx, ifaceTX)
 	}
 	if cfg.InitialPeriod == period {
+		if err := detectVnStatReset(rx, tx, cfg); err != nil {
+			return Usage{}, err
+		}
 		rx = saturatingSubtract(rx, cfg.BaselineRXBytes)
 		tx = saturatingSubtract(tx, cfg.BaselineTXBytes)
 		rx = saturatingAdd(rx, cfg.InitialRXBytes)
@@ -341,6 +344,16 @@ func daysSinceMonday(value time.Time) int {
 	return (int(value.Weekday()) + 6) % 7
 }
 
+func detectVnStatReset(rawRX uint64, rawTX uint64, cfg config.Config) error {
+	if cfg.BaselineRXBytes == 0 && cfg.BaselineTXBytes == 0 {
+		return nil
+	}
+	if rawRX < cfg.BaselineRXBytes || rawTX < cfg.BaselineTXBytes {
+		return fmt.Errorf("vnStat period total is below FlowGuard install baseline (raw RX=%d, raw TX=%d, baseline RX=%d, baseline TX=%d); vnStat database may have been reset", rawRX, rawTX, cfg.BaselineRXBytes, cfg.BaselineTXBytes)
+	}
+	return nil
+}
+
 func saturatingAdd(left uint64, right uint64) uint64 {
 	if ^uint64(0)-left < right {
 		return ^uint64(0)
@@ -445,7 +458,7 @@ func applyLimitRate(iface string, limitRate string) error {
 		return fmt.Errorf("refusing to replace unmanaged root qdisc on %s: %s", iface, current)
 	}
 	_, err = util.Run(30*time.Second, "tc", "qdisc", "replace", "dev", iface, "root", "handle", qdiscHandle, "tbf", "rate", limitRate, "burst", "32kbit", "latency", "400ms")
-	return err
+	return withTCPermissionHint(err)
 }
 
 func HasFlowGuardLimit(iface string) (bool, error) {
@@ -527,7 +540,7 @@ func RemoveLimit(iface string) error {
 	if err != nil && (strings.Contains(err.Error(), "No such file") || strings.Contains(err.Error(), "Invalid argument") || strings.Contains(err.Error(), "Cannot delete")) {
 		return nil
 	}
-	return err
+	return withTCPermissionHint(err)
 }
 
 func CurrentLimit(iface string) string {
@@ -544,6 +557,17 @@ func currentLimit(iface string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(result.Stdout), nil
+}
+
+func withTCPermissionHint(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "operation not permitted") || strings.Contains(message, "permission denied") {
+		return fmt.Errorf("%w; tc qdisc changes require root or CAP_NET_ADMIN", err)
+	}
+	return err
 }
 
 func UpdateState(state config.State, usage Usage, decision Decision) config.State {

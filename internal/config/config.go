@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -16,6 +17,7 @@ const (
 	DefaultConfigPath   = "/etc/flowguard/config.json"
 	DefaultStatePath    = "/var/lib/flowguard/state.json"
 	ConfigSchemaVersion = 1
+	MaxConfigBackups    = 10
 	LevelNormal         = "normal"
 	LevelWarn           = "warn"
 	LevelSoft           = "soft_limit"
@@ -296,10 +298,33 @@ func Backup(path string) (string, error) {
 		return "", err
 	}
 	backup := fmt.Sprintf("%s.bak.%s", path, time.Now().Format("20060102-150405.000000000"))
-	if err := os.WriteFile(backup, data, 0600); err != nil {
+	if err := writeFileAtomic(backup, data, 0600); err != nil {
+		return "", err
+	}
+	if err := pruneBackups(path, MaxConfigBackups); err != nil {
 		return "", err
 	}
 	return backup, nil
+}
+
+func pruneBackups(path string, keep int) error {
+	if keep <= 0 {
+		return nil
+	}
+	matches, err := filepath.Glob(path + ".bak.*")
+	if err != nil {
+		return err
+	}
+	if len(matches) <= keep {
+		return nil
+	}
+	sort.Strings(matches)
+	for _, oldBackup := range matches[:len(matches)-keep] {
+		if err := os.Remove(oldBackup); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func LoadState(path string, period string) (State, error) {
@@ -352,10 +377,17 @@ func writeJSONAtomic(path string, value any, perm os.FileMode) error {
 		return err
 	}
 	data = append(data, '\n')
+	return writeFileAtomic(path, data, perm)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	dir := filepath.Dir(path)
+	if err := ensureSafeFileTarget(path); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.")
 	if err != nil {
 		return err
@@ -377,10 +409,30 @@ func writeJSONAtomic(path string, value any, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if err := ensureSafeFileTarget(path); err != nil {
+		return err
+	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return err
 	}
 	return syncDir(dir)
+}
+
+func ensureSafeFileTarget(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to replace symlink %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to replace non-regular file %s", path)
+	}
+	return nil
 }
 
 func syncDir(path string) error {

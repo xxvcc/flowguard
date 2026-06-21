@@ -25,7 +25,16 @@ jobs:
           test -z "$(find . -name '*.go' -print0 | xargs -0 gofmt -l)"
       - name: Test
         run: go test ./...
+      - name: Race test
+        run: go test -race ./...
       - name: Vet
         run: go vet ./...
       - name: Shell syntax
         run: sh -n scripts/install.sh
+      - name: ShellCheck
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+          shellcheck scripts/install.sh

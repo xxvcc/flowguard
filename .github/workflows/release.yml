@@ -12,6 +12,8 @@ jobs:
   release:
     name: Build and publish release
     runs-on: ubuntu-latest
+    env:
+      FLOWGUARD_MINISIGN_SECRET_KEY: ${{ secrets.FLOWGUARD_MINISIGN_SECRET_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -39,6 +41,20 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="$LDFLAGS" -o build/flowguard ./cmd/flowguard
           tar -C build -czf dist/flowguard_linux_armv7.tar.gz flowguard
           (cd dist && sha256sum flowguard_*.tar.gz > checksums.txt)
+      - name: Sign checksums
+        if: ${{ env.FLOWGUARD_MINISIGN_SECRET_KEY != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          cleanup() {
+            rm -f minisign.key
+          }
+          trap cleanup EXIT
+          printf '%s' "$FLOWGUARD_MINISIGN_SECRET_KEY" > minisign.key
+          chmod 600 minisign.key
+          minisign -S -W -m dist/checksums.txt -s minisign.key -x dist/checksums.txt.minisig
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:

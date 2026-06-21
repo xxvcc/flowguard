@@ -13,8 +13,29 @@ import (
 const systemdUnitPath = "/etc/systemd/system/flowguard.service"
 
 func InstallSystemd(binaryPath string, configPath string, statePath string) error {
+	if err := validateSystemdPaths(binaryPath, configPath, statePath); err != nil {
+		return err
+	}
+	unit := renderSystemdUnit(binaryPath, configPath, statePath)
+	if err := os.WriteFile(systemdUnitPath, []byte(unit), 0644); err != nil {
+		return err
+	}
+	if _, err := util.Run(30*time.Second, "systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	if _, err := util.Run(30*time.Second, "systemctl", "enable", "flowguard"); err != nil {
+		return err
+	}
+	if _, err := util.Run(30*time.Second, "systemctl", "restart", "flowguard"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func renderSystemdUnit(binaryPath string, configPath string, statePath string) string {
 	stateDir := filepath.Dir(statePath)
-	unit := fmt.Sprintf(`[Unit]
+	configDir := filepath.Dir(configPath)
+	return fmt.Sprintf(`[Unit]
 Description=FlowGuard
 After=network-online.target vnstat.service
 Wants=network-online.target
@@ -31,6 +52,7 @@ AmbientCapabilities=CAP_NET_ADMIN
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+ReadOnlyPaths=%s
 ReadWritePaths=%s
 CapabilityBoundingSet=CAP_NET_ADMIN
 RestrictSUIDSGID=true
@@ -40,20 +62,7 @@ SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
-`, systemdEscapeArg(binaryPath), systemdEscapeArg(configPath), systemdEscapeArg(statePath), systemdEscapeArg(stateDir))
-	if err := os.WriteFile(systemdUnitPath, []byte(unit), 0644); err != nil {
-		return err
-	}
-	if _, err := util.Run(30*time.Second, "systemctl", "daemon-reload"); err != nil {
-		return err
-	}
-	if _, err := util.Run(30*time.Second, "systemctl", "enable", "flowguard"); err != nil {
-		return err
-	}
-	if _, err := util.Run(30*time.Second, "systemctl", "restart", "flowguard"); err != nil {
-		return err
-	}
-	return nil
+`, systemdEscapeArg(binaryPath), systemdEscapeArg(configPath), systemdEscapeArg(statePath), systemdEscapeArg(configDir), systemdEscapeArg(stateDir))
 }
 
 func systemdEscapeArg(value string) string {
@@ -76,6 +85,44 @@ func systemdEscapeArg(value string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+func validateSystemdPaths(binaryPath string, configPath string, statePath string) error {
+	binaryDir := filepath.Clean(filepath.Dir(binaryPath))
+	configDir := filepath.Clean(filepath.Dir(configPath))
+	stateDir := filepath.Clean(filepath.Dir(statePath))
+	if binaryDir == "." || binaryDir == string(os.PathSeparator) {
+		return fmt.Errorf("refusing unsafe binary directory for systemd unit: %s", binaryDir)
+	}
+	if configDir == "." || configDir == string(os.PathSeparator) {
+		return fmt.Errorf("refusing unsafe config directory for systemd unit: %s", configDir)
+	}
+	if stateDir == "." || stateDir == string(os.PathSeparator) {
+		return fmt.Errorf("refusing unsafe state directory for systemd unit: %s", stateDir)
+	}
+	for _, path := range []struct {
+		label string
+		value string
+	}{
+		{"binary directory", binaryDir},
+		{"config directory", configDir},
+		{"state directory", stateDir},
+	} {
+		if isUnderTmp(path.value) {
+			return fmt.Errorf("refusing %s under /tmp for systemd unit with PrivateTmp=true: %s", path.label, path.value)
+		}
+	}
+	for _, unsafe := range []string{"/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var", "/var/lib", "/dev", "/proc", "/sys", "/run", "/home"} {
+		if stateDir == unsafe {
+			return fmt.Errorf("refusing overly broad state directory for systemd ReadWritePaths: %s", stateDir)
+		}
+	}
+	return nil
+}
+
+func isUnderTmp(path string) bool {
+	path = filepath.Clean(path)
+	return path == "/tmp" || strings.HasPrefix(path, "/tmp/")
 }
 
 func Restart() error {

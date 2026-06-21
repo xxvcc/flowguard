@@ -1,6 +1,8 @@
 package traffic
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +194,48 @@ func TestDecideWithStateHysteresis(t *testing.T) {
 	}
 }
 
+func TestDetectVnStatReset(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.BaselineRXBytes = 10
+	cfg.BaselineTXBytes = 20
+	if err := detectVnStatReset(10, 20, cfg); err != nil {
+		t.Fatalf("unexpected reset error: %v", err)
+	}
+	if err := detectVnStatReset(9, 20, cfg); err == nil {
+		t.Fatal("expected reset error when raw RX is below baseline")
+	}
+	cfg.BaselineRXBytes = 0
+	cfg.BaselineTXBytes = 0
+	if err := detectVnStatReset(0, 0, cfg); err != nil {
+		t.Fatalf("zero baseline should not trigger reset: %v", err)
+	}
+}
+
+func TestReadUsageWithFakeVnStatCommand(t *testing.T) {
+	dir := t.TempDir()
+	vnstatPath := filepath.Join(dir, "vnstat")
+	script := `#!/bin/sh
+printf '%s\n' '{"interfaces":[{"name":"eth0","traffic":{"month":[{"date":{"year":2026,"month":6},"rx":100,"tx":200}],"day":[{"date":{"year":2026,"month":6,"day":20},"rx":100,"tx":200}]}}]}'
+`
+	if err := os.WriteFile(vnstatPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FLOWGUARD_TEST_PATH", "1")
+	t.Setenv("PATH", dir)
+	cfg := config.DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.Interfaces = []string{"eth0"}
+	cfg.AllowanceBytes = 1000
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	usage, err := ReadUsage(cfg, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.RXBytes != 100 || usage.TXBytes != 200 || usage.BillableBytes != 300 {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
 func TestFindMonthRejectsMissingMonth(t *testing.T) {
 	data := vnstatJSON{Interfaces: []vnstatInterface{{Name: "eth0", Traffic: vnstatTraffic{Total: vnstatTotal{RX: 123, TX: 456}}}}}
 	_, _, err := findMonth(data, "eth0", "2026-06")
@@ -290,6 +334,16 @@ func TestSplitRate(t *testing.T) {
 	}
 	if _, err := SplitRate("1e309mbit", 1); err == nil {
 		t.Fatal("expected unsupported rate error")
+	}
+}
+
+func TestWithTCPermissionHint(t *testing.T) {
+	err := withTCPermissionHint(os.ErrPermission)
+	if err == nil || !strings.Contains(err.Error(), "CAP_NET_ADMIN") {
+		t.Fatalf("expected CAP_NET_ADMIN hint, got %v", err)
+	}
+	if withTCPermissionHint(nil) != nil {
+		t.Fatal("nil error should stay nil")
 	}
 }
 

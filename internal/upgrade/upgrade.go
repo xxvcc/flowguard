@@ -34,21 +34,23 @@ var (
 )
 
 type Options struct {
-	Repo       string
-	Version    string
-	BaseURL    string
-	InstallDir string
-	NoRestart  bool
-	DryRun     bool
-	HTTPClient *http.Client
+	Repo           string
+	Version        string
+	BaseURL        string
+	InstallDir     string
+	MinisignPubKey string
+	NoRestart      bool
+	DryRun         bool
+	HTTPClient     *http.Client
 }
 
 type Plan struct {
-	Version     string
-	Asset       string
-	AssetURL    string
-	ChecksumURL string
-	InstallPath string
+	Version      string
+	Asset        string
+	AssetURL     string
+	ChecksumURL  string
+	SignatureURL string
+	InstallPath  string
 }
 
 func Run(opts Options) error {
@@ -58,7 +60,10 @@ func Run(opts Options) error {
 	}
 	if opts.DryRun {
 		fmt.Printf("Would download: %s\n", plan.AssetURL)
-		fmt.Printf("Would verify: %s\n", plan.ChecksumURL)
+		fmt.Printf("Would verify checksum: %s\n", plan.ChecksumURL)
+		if opts.MinisignPubKey != "" {
+			fmt.Printf("Would verify signature: %s\n", plan.SignatureURL)
+		}
 		fmt.Printf("Would install: %s\n", plan.InstallPath)
 		return nil
 	}
@@ -88,6 +93,15 @@ func Run(opts Options) error {
 	}
 	if err := download(client, plan.ChecksumURL, checksumPath); err != nil {
 		return err
+	}
+	if opts.MinisignPubKey != "" {
+		signaturePath := filepath.Join(tmpDir, "checksums.txt.minisig")
+		if err := download(client, plan.SignatureURL, signaturePath); err != nil {
+			return err
+		}
+		if err := verifyMinisign(checksumPath, signaturePath, opts.MinisignPubKey); err != nil {
+			return err
+		}
 	}
 	want, err := findChecksum(checksumPath, plan.Asset)
 	if err != nil {
@@ -155,11 +169,12 @@ func BuildPlan(opts Options) (Plan, error) {
 		return Plan{}, err
 	}
 	return Plan{
-		Version:     version,
-		Asset:       asset,
-		AssetURL:    baseURL + "/" + asset,
-		ChecksumURL: baseURL + "/checksums.txt",
-		InstallPath: filepath.Join(installDir, BinaryName),
+		Version:      version,
+		Asset:        asset,
+		AssetURL:     baseURL + "/" + asset,
+		ChecksumURL:  baseURL + "/checksums.txt",
+		SignatureURL: baseURL + "/checksums.txt.minisig",
+		InstallPath:  filepath.Join(installDir, BinaryName),
 	}, nil
 }
 
@@ -286,6 +301,16 @@ func findChecksum(path string, asset string) (string, error) {
 	return "", fmt.Errorf("checksum for %s not found", asset)
 }
 
+func verifyMinisign(messagePath string, signaturePath string, publicKey string) error {
+	if strings.TrimSpace(publicKey) == "" {
+		return fmt.Errorf("minisign public key is required")
+	}
+	if _, err := util.Run(30*time.Second, "minisign", "-Vm", messagePath, "-x", signaturePath, "-P", publicKey); err != nil {
+		return fmt.Errorf("verify minisign signature: %w", err)
+	}
+	return nil
+}
+
 func verifySHA256(path string, want string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -315,6 +340,7 @@ func extractBinary(archivePath string, outPath string) error {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+	found := false
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -323,8 +349,14 @@ func extractBinary(archivePath string, outPath string) error {
 		if err != nil {
 			return err
 		}
-		if filepath.Base(header.Name) != BinaryName || header.Typeflag != tar.TypeReg {
-			continue
+		if header.Name != BinaryName && header.Name != "./"+BinaryName {
+			return fmt.Errorf("archive contains unexpected entry %q", header.Name)
+		}
+		if found {
+			return fmt.Errorf("archive contains duplicate %s entry", BinaryName)
+		}
+		if header.Typeflag != tar.TypeReg {
+			return fmt.Errorf("archive entry %q is not a regular file", header.Name)
 		}
 		if header.Size < 0 || header.Size > maxBinaryBytes {
 			return fmt.Errorf("binary in archive is too large")
@@ -333,9 +365,14 @@ func extractBinary(archivePath string, outPath string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(out, tr); err != nil {
+		written, err := io.Copy(out, tr)
+		if err != nil {
 			_ = out.Close()
 			return err
+		}
+		if written != header.Size {
+			_ = out.Close()
+			return fmt.Errorf("binary size mismatch in archive")
 		}
 		if err := out.Sync(); err != nil {
 			_ = out.Close()
@@ -344,24 +381,40 @@ func extractBinary(archivePath string, outPath string) error {
 		if err := out.Close(); err != nil {
 			return err
 		}
-		return nil
+		found = true
 	}
-	return fmt.Errorf("%s not found in archive", BinaryName)
+	if !found {
+		return fmt.Errorf("%s not found in archive", BinaryName)
+	}
+	return nil
 }
 
 func installBinary(src string, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := ensureRegularFile(src); err != nil {
+		return fmt.Errorf("invalid source binary: %w", err)
+	}
+	dir := filepath.Dir(dst)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	if err := ensureSafeInstallDir(dir); err != nil {
+		return err
+	}
+	if err := ensureRegularFileIfExists(dst); err != nil {
 		return err
 	}
 	backup := dst + ".bak"
-	if _, err := os.Stat(dst); err == nil {
+	if err := ensureRegularFileIfExists(backup); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(dst); err == nil {
 		if err := copyFile(dst, backup, 0755); err != nil {
 			return err
 		}
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".tmp.")
+	tmp, err := os.CreateTemp(dir, filepath.Base(dst)+".tmp.")
 	if err != nil {
 		return err
 	}
@@ -392,18 +445,24 @@ func installBinary(src string, dst string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if err := ensureRegularFileIfExists(dst); err != nil {
+		return err
+	}
 	if err := os.Rename(tmpPath, dst); err != nil {
-		if _, statErr := os.Stat(backup); statErr == nil {
+		if statErr := ensureRegularFileIfExists(backup); statErr == nil {
 			_ = copyFile(backup, dst, 0755)
 		}
 		return err
 	}
-	return syncDir(filepath.Dir(dst))
+	return syncDir(dir)
 }
 
 func restoreBackup(dst string) error {
 	backup := dst + ".bak"
-	if _, err := os.Stat(backup); err != nil {
+	if err := ensureRegularFile(backup); err != nil {
+		return err
+	}
+	if err := ensureRegularFileIfExists(dst); err != nil {
 		return err
 	}
 	if err := copyFile(backup, dst, 0755); err != nil {
@@ -413,6 +472,12 @@ func restoreBackup(dst string) error {
 }
 
 func copyFile(src string, dst string, mode os.FileMode) error {
+	if err := ensureRegularFile(src); err != nil {
+		return err
+	}
+	if err := ensureRegularFileIfExists(dst); err != nil {
+		return err
+	}
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -426,11 +491,56 @@ func copyFile(src string, dst string, mode os.FileMode) error {
 		_ = out.Close()
 		return err
 	}
+	if err := out.Chmod(mode); err != nil {
+		_ = out.Close()
+		return err
+	}
 	if err := out.Sync(); err != nil {
 		_ = out.Close()
 		return err
 	}
 	return out.Close()
+}
+
+func ensureSafeInstallDir(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("install directory %s must not be a symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("install directory %s is not a directory", path)
+	}
+	if info.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("install directory %s must not be group/world writable", path)
+	}
+	return nil
+}
+
+func ensureRegularFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	return nil
+}
+
+func ensureRegularFileIfExists(path string) error {
+	if err := ensureRegularFile(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func syncDir(path string) error {

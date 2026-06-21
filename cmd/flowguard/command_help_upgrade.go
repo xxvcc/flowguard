@@ -16,6 +16,7 @@ func cmdUpgrade(args []string) error {
 	fs.StringVar(&opts.Version, "version", "latest", "release version tag or latest")
 	fs.StringVar(&opts.BaseURL, "base-url", "", "release asset base URL override")
 	fs.StringVar(&opts.InstallDir, "install-dir", upgrade.DefaultInstallDir, "install directory")
+	fs.StringVar(&opts.MinisignPubKey, "minisign-pubkey", "", "minisign public key for verifying checksums.txt.minisig")
 	fs.BoolVar(&opts.NoRestart, "no-restart", false, "do not restart flowguard service after upgrade")
 	fs.BoolVar(&opts.DryRun, "dry-run", false, "print upgrade plan without downloading")
 	if err := fs.Parse(args); err != nil {

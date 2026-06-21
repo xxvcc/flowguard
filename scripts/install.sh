@@ -7,6 +7,7 @@ INSTALL_DIR="${FLOWGUARD_INSTALL_DIR:-/usr/local/bin}"
 BASE_URL="${FLOWGUARD_BASE_URL:-}"
 SKIP_SETUP="${FLOWGUARD_SKIP_SETUP:-0}"
 NO_RESTART="${FLOWGUARD_NO_RESTART:-0}"
+MINISIGN_PUBKEY="${FLOWGUARD_MINISIGN_PUBKEY:-}"
 BIN_NAME="flowguard"
 TMP_DIR=""
 
@@ -65,10 +66,32 @@ check_size() {
   fi
 }
 
+validate_download_url() {
+  case "$1" in
+    https://*) return 0 ;;
+    http://localhost/*|http://127.0.0.1/*|http://\[::1\]/*) return 0 ;;
+    *) reject "download URL must be https, except localhost test mirrors: $1" ;;
+  esac
+}
+
 if command -v curl >/dev/null 2>&1; then
-  fetch() { curl -fsSL "$1" -o "$2"; }
+  fetch() {
+    url="$1"
+    out="$2"
+    validate_download_url "$url"
+    final_url=$(curl -fsSLw '%{url_effective}' "$url" -o "$out")
+    validate_download_url "$final_url"
+  }
 elif command -v wget >/dev/null 2>&1; then
-  fetch() { wget -qO "$2" "$1"; }
+  fetch() {
+    url="$1"
+    out="$2"
+    validate_download_url "$url"
+    case "$url" in
+      https://*) wget --https-only -qO "$out" "$url" ;;
+      http://localhost/*|http://127.0.0.1/*|http://\[::1\]/*) wget -qO "$out" "$url" ;;
+    esac
+  }
 else
   echo "error: curl or wget is required" >&2
   exit 1
@@ -97,6 +120,7 @@ fi
 
 asset="flowguard_${os}_${arch}.tar.gz"
 checksums="checksums.txt"
+signature="checksums.txt.minisig"
 
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/flowguard-install.XXXXXXXXXX")
 echo "Downloading $asset from $REPO ($VERSION)..."
@@ -104,6 +128,12 @@ fetch "$base_url/$asset" "$TMP_DIR/$asset"
 fetch "$base_url/$checksums" "$TMP_DIR/$checksums"
 check_size "$TMP_DIR/$asset" 104857600 "$asset"
 check_size "$TMP_DIR/$checksums" 1048576 "$checksums"
+if [ -n "$MINISIGN_PUBKEY" ]; then
+  need_cmd minisign
+  fetch "$base_url/$signature" "$TMP_DIR/$signature"
+  check_size "$TMP_DIR/$signature" 1048576 "$signature"
+  minisign -Vm "$TMP_DIR/$checksums" -x "$TMP_DIR/$signature" -P "$MINISIGN_PUBKEY"
+fi
 
 (cd "$TMP_DIR" && awk -v asset="$asset" '$2 == asset { print; found=1 } END { exit found ? 0 : 1 }' "$checksums" | sha256sum -c -)
 tar -tzf "$TMP_DIR/$asset" > "$TMP_DIR/tar.list"
@@ -133,25 +163,41 @@ else
   SUDO=""
 fi
 
-$SUDO mkdir -p "$INSTALL_DIR"
+run_as_root() {
+  if [ -n "$SUDO" ]; then
+    "$SUDO" "$@"
+  else
+    "$@"
+  fi
+}
+
+exec_as_root() {
+  if [ -n "$SUDO" ]; then
+    exec "$SUDO" "$@"
+  fi
+  exec "$@"
+}
+
+run_as_root mkdir -p "$INSTALL_DIR"
 if [ -f "$INSTALL_DIR/$BIN_NAME" ]; then
-  $SUDO cp -p "$INSTALL_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME.bak"
+  run_as_root cp -p "$INSTALL_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME.bak"
 fi
-$SUDO install -m 0755 "$TMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
+run_as_root install -m 0755 "$TMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 
 echo "Installed $BIN_NAME to $INSTALL_DIR/$BIN_NAME"
 if [ "$SKIP_SETUP" = "1" ] || [ "$SKIP_SETUP" = "true" ]; then
   if [ "$NO_RESTART" = "1" ] || [ "$NO_RESTART" = "true" ]; then
     echo "Skipped flowguard service restart."
   elif command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files flowguard.service --no-legend 2>/dev/null | awk '$1 == "flowguard.service" { found=1 } END { exit found ? 0 : 1 }'; then
-    if ! $SUDO systemctl restart flowguard; then
+    if ! run_as_root systemctl restart flowguard; then
       if [ -f "$INSTALL_DIR/$BIN_NAME.bak" ]; then
-        $SUDO cp -p "$INSTALL_DIR/$BIN_NAME.bak" "$INSTALL_DIR/$BIN_NAME"
-        if ! $SUDO systemctl restart flowguard; then
+        run_as_root cp -p "$INSTALL_DIR/$BIN_NAME.bak" "$INSTALL_DIR/$BIN_NAME"
+        if ! run_as_root systemctl restart flowguard; then
           reject "flowguard service restart failed after upgrade; rolled back but restarting backup failed"
         fi
+        reject "flowguard service restart failed after upgrade; rolled back to previous binary and service restarted"
       fi
-      reject "flowguard service restart failed after upgrade"
+      reject "flowguard service restart failed after upgrade; no backup binary was available"
     fi
     echo "Restarted flowguard service if available."
   fi
@@ -161,6 +207,6 @@ fi
 
 echo "Starting interactive installer..."
 if [ -r /dev/tty ]; then
-  exec $SUDO "$INSTALL_DIR/$BIN_NAME" install "$@" < /dev/tty
+  exec_as_root "$INSTALL_DIR/$BIN_NAME" install --install-dir "$INSTALL_DIR" "$@" < /dev/tty
 fi
-exec $SUDO "$INSTALL_DIR/$BIN_NAME" install "$@"
+exec_as_root "$INSTALL_DIR/$BIN_NAME" install --install-dir "$INSTALL_DIR" "$@"

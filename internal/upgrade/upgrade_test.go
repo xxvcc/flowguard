@@ -74,6 +74,45 @@ func TestExtractBinaryRejectsMissing(t *testing.T) {
 	}
 }
 
+func TestExtractBinaryRejectsNestedFlowGuard(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "asset.tar.gz")
+	if err := writeTarGz(archive, "nested/"+BinaryName, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractBinary(archive, filepath.Join(dir, BinaryName)); err == nil {
+		t.Fatal("expected nested binary to be rejected")
+	}
+}
+
+func TestExtractBinaryRejectsUnexpectedExtraEntry(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "asset.tar.gz")
+	if err := writeTarGzEntries(archive,
+		tarTestEntry{name: BinaryName, content: []byte("x"), typ: tar.TypeReg},
+		tarTestEntry{name: "README.md", content: []byte("extra"), typ: tar.TypeReg},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractBinary(archive, filepath.Join(dir, BinaryName)); err == nil {
+		t.Fatal("expected extra archive entry to be rejected")
+	}
+}
+
+func TestExtractBinaryRejectsDuplicateFlowGuard(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "asset.tar.gz")
+	if err := writeTarGzEntries(archive,
+		tarTestEntry{name: BinaryName, content: []byte("one"), typ: tar.TypeReg},
+		tarTestEntry{name: "./" + BinaryName, content: []byte("two"), typ: tar.TypeReg},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractBinary(archive, filepath.Join(dir, BinaryName)); err == nil {
+		t.Fatal("expected duplicate binary entry to be rejected")
+	}
+}
+
 func TestRunDryRunDoesNotNeedRoot(t *testing.T) {
 	if err := Run(Options{DryRun: true, BaseURL: "https://example.invalid/releases", InstallDir: t.TempDir()}); err != nil {
 		t.Fatal(err)
@@ -179,7 +218,58 @@ func TestInstallBinaryCreatesBackupAndRestore(t *testing.T) {
 	}
 }
 
+func TestInstallBinaryRejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, BinaryName)
+	src := filepath.Join(dir, "new")
+	outside := filepath.Join(dir, "outside")
+	if err := os.WriteFile(src, []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := installBinary(src, dst); err == nil {
+		t.Fatal("expected symlink target to be rejected")
+	}
+}
+
+func TestInstallBinaryRejectsSymlinkBackup(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, BinaryName)
+	src := filepath.Join(dir, "new")
+	outside := filepath.Join(dir, "outside")
+	if err := os.WriteFile(dst, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dst+".bak"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installBinary(src, dst); err == nil {
+		t.Fatal("expected symlink backup to be rejected")
+	}
+}
+
+type tarTestEntry struct {
+	name    string
+	content []byte
+	typ     byte
+}
+
 func writeTarGz(path string, name string, content []byte) error {
+	return writeTarGzEntries(path, tarTestEntry{name: name, content: content, typ: tar.TypeReg})
+}
+
+func writeTarGzEntries(path string, entries ...tarTestEntry) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return err
@@ -189,9 +279,24 @@ func writeTarGz(path string, name string, content []byte) error {
 	defer gz.Close()
 	tw := tar.NewWriter(gz)
 	defer tw.Close()
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
-		return err
+	for _, entry := range entries {
+		content := entry.content
+		typ := entry.typ
+		if typ == 0 {
+			typ = tar.TypeReg
+		}
+		size := int64(len(content))
+		if typ != tar.TypeReg {
+			size = 0
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0755, Size: size, Typeflag: typ}); err != nil {
+			return err
+		}
+		if typ == tar.TypeReg {
+			if _, err := tw.Write(content); err != nil {
+				return err
+			}
+		}
 	}
-	_, err = tw.Write(content)
-	return err
+	return nil
 }

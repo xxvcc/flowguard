@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type Options struct {
 	Yes              bool
 	ConfigPath       string
 	StatePath        string
+	InstallDir       string
 	Allowance        string
 	InitialTotal     string
 	InitialRX        string
@@ -120,6 +122,9 @@ func Run(opts Options) error {
 	if opts.StatePath == "" {
 		opts.StatePath = config.DefaultStatePath
 	}
+	if opts.InstallDir == "" {
+		opts.InstallDir = "/usr/local/bin"
+	}
 	if err := setInstallBaseline(&cfg); err != nil {
 		if !isVnStatWarmupError(err) {
 			return err
@@ -145,11 +150,12 @@ func Run(opts Options) error {
 	}
 	fmt.Printf("Wrote config: %s\n", opts.ConfigPath)
 
-	if err := installBinary(); err != nil {
+	installPath, err := installBinary(opts.InstallDir)
+	if err != nil {
 		return err
 	}
 	if util.CommandExists("systemctl") {
-		if err := service.InstallSystemd("/usr/local/bin/flowguard", opts.ConfigPath, opts.StatePath); err != nil {
+		if err := service.InstallSystemd(installPath, opts.ConfigPath, opts.StatePath); err != nil {
 			return err
 		}
 		fmt.Println("Installed and started systemd service: flowguard")
@@ -533,46 +539,49 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func installBinary() error {
+func installBinary(installDir string) (string, error) {
+	if installDir == "" {
+		installDir = "/usr/local/bin"
+	}
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return "", err
 	}
 	data, err := os.ReadFile(exe)
 	if err != nil {
-		return err
+		return "", err
 	}
-	const installDir = "/usr/local/bin"
 	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return err
+		return "", err
 	}
 	tmp, err := os.CreateTemp(installDir, "flowguard.tmp.")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Chmod(0755); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return "", err
 	}
-	if err := os.Rename(tmpPath, installDir+"/flowguard"); err != nil {
-		return err
+	installPath := filepath.Join(installDir, "flowguard")
+	if err := os.Rename(tmpPath, installPath); err != nil {
+		return "", err
 	}
 	_ = syncDir(installDir)
-	fmt.Println("Installed binary: /usr/local/bin/flowguard")
-	return nil
+	fmt.Printf("Installed binary: %s\n", installPath)
+	return installPath, nil
 }
 
 func syncDir(path string) error {

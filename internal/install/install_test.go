@@ -2,6 +2,7 @@ package install
 
 import (
 	"bufio"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,6 +96,18 @@ func TestWithDefaultUnit(t *testing.T) {
 	}
 	if got := withDefaultUnit("10", "mbit"); got != "10mbit" {
 		t.Fatalf("rate default unit=%q", got)
+	}
+}
+
+func TestInstallBinaryUsesCustomInstallDir(t *testing.T) {
+	dir := t.TempDir()
+	installPath, err := installBinary(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "flowguard")
+	if installPath != want {
+		t.Fatalf("installPath=%q, want %q", installPath, want)
 	}
 }
 

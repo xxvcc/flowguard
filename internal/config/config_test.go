@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -164,6 +165,26 @@ func TestBackupCreatesUniqueFiles(t *testing.T) {
 	}
 }
 
+func TestBackupPrunesOldFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"ok":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < MaxConfigBackups+3; i++ {
+		if _, err := Backup(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	matches, err := filepath.Glob(path + ".bak.*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != MaxConfigBackups {
+		t.Fatalf("backups=%d, want %d: %v", len(matches), MaxConfigBackups, matches)
+	}
+}
+
 func TestSaveUsesPrivateFileAndNoTempLeftover(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -187,5 +208,42 @@ func TestSaveUsesPrivateFileAndNoTempLeftover(t *testing.T) {
 	}
 	if len(matches) != 0 {
 		t.Fatalf("temp files left behind: %v", matches)
+	}
+}
+
+func TestWriteFileAtomicRejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.json")
+	link := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(target, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	err := writeFileAtomic(link, []byte("replace"), 0600)
+	if err == nil {
+		t.Fatal("expected symlink target to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("symlink target was modified: %q", data)
+	}
+}
+
+func TestWriteFileAtomicRejectsDirectoryTarget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(path, []byte("replace"), 0600); err == nil {
+		t.Fatal("expected directory target to be rejected")
 	}
 }

@@ -155,12 +155,20 @@ func evaluateOnce(cfg config.Config, statePath string, sendNotifications bool) e
 		return err
 	}
 	limitMissing := false
+	staleLimitPresent := false
 	if decision.LimitRate != "" && state.Limited && desiredLimitKey == state.AppliedLimitKey {
 		missing, err := anyFlowGuardLimitMissing(cfg)
 		if err != nil {
 			return err
 		}
 		limitMissing = missing
+	}
+	if decision.LimitRate == "" && !state.Limited {
+		present, err := anyFlowGuardLimitPresent(cfg)
+		if err != nil {
+			return err
+		}
+		staleLimitPresent = present
 	}
 	if decision.LimitRate != "" && (!state.Limited || desiredLimitKey != state.AppliedLimitKey || limitMissing) {
 		if err := applyLimits(cfg, decision.LimitRate); err != nil {
@@ -171,7 +179,7 @@ func evaluateOnce(cfg config.Config, statePath string, sendNotifications bool) e
 			}
 			return err
 		}
-	} else if decision.LimitRate == "" && state.Limited {
+	} else if decision.LimitRate == "" && (state.Limited || staleLimitPresent) {
 		if err := removeLimits(cfg); err != nil {
 			return err
 		}
@@ -253,6 +261,19 @@ func anyFlowGuardLimitMissing(cfg config.Config) (bool, error) {
 			return false, err
 		}
 		if !present {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func anyFlowGuardLimitPresent(cfg config.Config) (bool, error) {
+	for _, iface := range cfg.Interfaces {
+		present, err := traffic.HasFlowGuardLimit(iface)
+		if err != nil {
+			return false, err
+		}
+		if present {
 			return true, nil
 		}
 	}
