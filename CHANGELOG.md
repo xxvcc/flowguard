@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.17 - 2026-06-21
 
 - Harden upgrade archive extraction, binary replacement, backups, and install-directory validation.
 - Add optional minisign verification for release checksums in the installer script and built-in upgrade command.
