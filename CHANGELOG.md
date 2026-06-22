@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Change the project license from MIT to GPL-3.0 and add attribution notice for Longlan.
+
 ## v0.1.17 - 2026-06-21
 
 - Harden upgrade archive extraction, binary replacement, backups, and install-directory validation.

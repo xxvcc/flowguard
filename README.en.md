@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml/badge.svg)](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/xxvcc/flowguard)](https://github.com/xxvcc/flowguard/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/xxvcc/flowguard)](go.mod)
 
 **FlowGuard** is a lightweight VPS bandwidth allowance guard. It watches traffic with `vnStat`, applies outbound shaping with Linux `tc`, and guides setup with a Bubble Tea TUI.
@@ -280,4 +280,8 @@ Default config path: `/etc/flowguard/config.json`
 
 ## License
 
-MIT
+FlowGuard is licensed under the [GNU General Public License v3.0](LICENSE).
+
+Copyright (C) 2026 Longlan. See [NOTICE](NOTICE) for attribution and original repository information.
+
+Redistributed copies and modified versions must keep the copyright and license notices, clearly state changes, and make the corresponding source code available under the same GPL-3.0 license.

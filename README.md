@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml/badge.svg)](https://github.com/xxvcc/flowguard/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/xxvcc/flowguard)](https://github.com/xxvcc/flowguard/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/xxvcc/flowguard)](go.mod)
 
 **FlowGuard** 是一个轻量 VPS 流量额度守卫。它通过 `vnStat` 统计流量，用 Linux `tc` 做出站限速，并提供 Bubble Tea TUI 安装向导。
@@ -280,4 +280,8 @@ sudo flowguard upgrade --minisign-pubkey 'RW...'
 
 ## License
 
-MIT
+FlowGuard 使用 [GNU General Public License v3.0](LICENSE) 授权。
+
+Copyright (C) 2026 Longlan。作者署名和原仓库信息见 [NOTICE](NOTICE)。
+
+重新分发的副本和修改版本必须保留版权与许可证声明，清楚标注修改内容，并在同一 GPL-3.0 许可证下提供对应源代码。
