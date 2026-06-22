@@ -1,9 +1,19 @@
-FlowGuard
-Copyright (C) 2026 Longlan
+# FlowGuard Notice
 
-Original repository: https://github.com/xxvcc/flowguard
+## 中文
 
-FlowGuard is distributed under the GNU General Public License version 3.0
-(GPL-3.0). Any redistributed copy or modified version must preserve this
-notice, preserve the copyright and license notices, clearly state any changes,
-and make the corresponding source code available under the same license.
+- 项目名称：FlowGuard
+- 作者：Longlan
+- 原始仓库：https://github.com/xxvcc/flowguard
+- 许可证：GNU General Public License v3.0（GPL-3.0）
+
+重新分发本项目或发布修改版本时，必须保留本声明、版权声明和许可证声明；必须清楚标注你所做的修改；并且必须按照 GPL-3.0 的要求，以同一许可证提供对应源代码。
+
+## English
+
+- Project: FlowGuard
+- Author: Longlan
+- Original repository: https://github.com/xxvcc/flowguard
+- License: GNU General Public License v3.0 (GPL-3.0)
+
+When redistributing this project or publishing modified versions, you must preserve this notice, the copyright notice, and the license notice; clearly state your changes; and provide the corresponding source code under the same GPL-3.0 license.

@@ -282,6 +282,8 @@ Default config path: `/etc/flowguard/config.json`
 
 FlowGuard is licensed under the [GNU General Public License v3.0](LICENSE).
 
-Copyright (C) 2026 Longlan. See [NOTICE](NOTICE) for attribution and original repository information.
+- Author: Longlan
+- Original repository: https://github.com/xxvcc/flowguard
+- Attribution and redistribution notice: [NOTICE](NOTICE)
 
-Redistributed copies and modified versions must keep the copyright and license notices, clearly state changes, and make the corresponding source code available under the same GPL-3.0 license.
+When redistributing this project or publishing modified versions, you must preserve the copyright and license notices, clearly state your changes, and provide the corresponding source code under the same GPL-3.0 license.

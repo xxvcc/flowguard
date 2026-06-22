@@ -278,10 +278,12 @@ sudo flowguard upgrade --minisign-pubkey 'RW...'
 - `flowguard uninstall` 会先解除 FlowGuard 管理的 `tbf` 限速，再删除服务、默认配置、默认状态和默认二进制。若你安装到了自定义二进制目录，卸载后请按需手动删除该目录。
 - 默认不会删除 `vnStat` 数据库和系统依赖；如确认这些接口数据只给 FlowGuard 使用，可加 `--remove-vnstat=true`。
 
-## License
+## 许可证
 
 FlowGuard 使用 [GNU General Public License v3.0](LICENSE) 授权。
 
-Copyright (C) 2026 Longlan。作者署名和原仓库信息见 [NOTICE](NOTICE)。
+- 作者：Longlan
+- 原始仓库：https://github.com/xxvcc/flowguard
+- 归属与再分发说明：[NOTICE](NOTICE)
 
-重新分发的副本和修改版本必须保留版权与许可证声明，清楚标注修改内容，并在同一 GPL-3.0 许可证下提供对应源代码。
+重新分发本项目或发布修改版本时，必须保留版权与许可证声明，清楚标注修改内容，并按照 GPL-3.0 的要求以同一许可证提供对应源代码。
