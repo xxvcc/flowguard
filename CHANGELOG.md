@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Make `SECURITY.md` bilingual in Chinese and English.
 - Change the project license from MIT to GPL-3.0 and add attribution notice for Longlan.
 
 ## v0.1.17 - 2026-06-21
