@@ -175,14 +175,20 @@ flowguard_linux_amd64.tar.gz
 flowguard_linux_arm64.tar.gz
 flowguard_linux_armv7.tar.gz
 checksums.txt
-checksums.txt.minisig  # 可选；发布者配置 minisign 私钥后生成
+checksums.txt.minisig  # 对 checksums.txt 的 minisign 签名（用下方公钥验证）
 ```
 
 安装脚本始终校验 `checksums.txt` 中对应资产的 SHA256；如果设置 `FLOWGUARD_MINISIGN_PUBKEY`，还会先用 `minisign` 验证 `checksums.txt.minisig`，从而保护校验文件本身。
 
+FlowGuard 官方签名公钥：
+
+```text
+RWTxOlmbDLslGiNzC+O6D7Fv7cv57C4ITTxOlonZ5a27RlwNwo4IGeZh
+```
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
-  sudo env FLOWGUARD_MINISIGN_PUBKEY='RW...' sh
+  sudo env FLOWGUARD_MINISIGN_PUBKEY='RWTxOlmbDLslGiNzC+O6D7Fv7cv57C4ITTxOlonZ5a27RlwNwo4IGeZh' sh
 ```
 
 如果使用镜像或自建 release 文件：
@@ -221,7 +227,7 @@ curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/instal
 sudo flowguard upgrade
 sudo flowguard upgrade --version v0.1.4
 sudo flowguard upgrade --no-restart
-sudo flowguard upgrade --minisign-pubkey 'RW...'
+sudo flowguard upgrade --minisign-pubkey 'RWTxOlmbDLslGiNzC+O6D7Fv7cv57C4ITTxOlonZ5a27RlwNwo4IGeZh'
 ```
 
 升级只替换二进制，默认会在检测到 `flowguard.service` 时重启服务；如果服务重启失败，内置升级会回滚二进制。升级不会修改 `/etc/flowguard/config.json` 和 `/var/lib/flowguard/state.json`。如果提供 `--minisign-pubkey`，内置升级会要求发布资产中存在并通过验证的 `checksums.txt.minisig`。

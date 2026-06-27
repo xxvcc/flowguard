@@ -16,9 +16,9 @@ jobs:
       FLOWGUARD_MINISIGN_SECRET_KEY: ${{ secrets.FLOWGUARD_MINISIGN_SECRET_KEY }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -56,7 +56,7 @@ jobs:
           chmod 600 minisign.key
           minisign -S -W -m dist/checksums.txt -s minisign.key -x dist/checksums.txt.minisig
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: dist/*
           generate_release_notes: true

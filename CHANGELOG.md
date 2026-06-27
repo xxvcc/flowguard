@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.1 - 2026-06-27
+
+- Sign release `checksums.txt` with minisign and publish the official signing public key in the README.
+- Update pinned GitHub Actions (`checkout`, `setup-go`, `action-gh-release`) to their current Node 24 releases.
+
 ## v0.2.0 - 2026-06-27
 
 - Make `SECURITY.md` bilingual in Chinese and English.

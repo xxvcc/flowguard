@@ -175,14 +175,20 @@ flowguard_linux_amd64.tar.gz
 flowguard_linux_arm64.tar.gz
 flowguard_linux_armv7.tar.gz
 checksums.txt
-checksums.txt.minisig  # optional; generated when the publisher configures a minisign secret key
+checksums.txt.minisig  # minisign signature over checksums.txt (verify with the public key below)
 ```
 
 The installer always verifies the selected asset's SHA256 entry in `checksums.txt`. When `FLOWGUARD_MINISIGN_PUBKEY` is set, it first verifies `checksums.txt.minisig` with `minisign`, protecting the checksum file itself.
 
+The official FlowGuard signing public key is:
+
+```text
+RWTxOlmbDLslGiNzC+O6D7Fv7cv57C4ITTxOlonZ5a27RlwNwo4IGeZh
+```
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xxvcc/flowguard/main/scripts/install.sh | \
-  sudo env FLOWGUARD_MINISIGN_PUBKEY='RW...' sh
+  sudo env FLOWGUARD_MINISIGN_PUBKEY='RWTxOlmbDLslGiNzC+O6D7Fv7cv57C4ITTxOlonZ5a27RlwNwo4IGeZh' sh
 ```
 
 For mirrors or self-hosted release files:
@@ -221,7 +227,7 @@ After installation, you can also use the built-in upgrade command:
 sudo flowguard upgrade
 sudo flowguard upgrade --version v0.1.4
 sudo flowguard upgrade --no-restart
-sudo flowguard upgrade --minisign-pubkey 'RW...'
+sudo flowguard upgrade --minisign-pubkey 'RWTxOlmbDLslGiNzC+O6D7Fv7cv57C4ITTxOlonZ5a27RlwNwo4IGeZh'
 ```
 
 Upgrade replaces only the binary and restarts `flowguard.service` when it exists. If the built-in upgrade cannot restart the service, it rolls the binary back. It does not modify `/etc/flowguard/config.json` or `/var/lib/flowguard/state.json`. When `--minisign-pubkey` is provided, built-in upgrade requires a release `checksums.txt.minisig` that verifies successfully.
