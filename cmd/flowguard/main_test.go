@@ -40,6 +40,35 @@ func TestRemoveManagedFileRemovesOnlyFile(t *testing.T) {
 	}
 }
 
+func TestRemoveManagedFileRemovesBackups(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(file, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Config backups may contain the Telegram token; uninstall must remove them.
+	backups := []string{file + ".bak.20260101-000000.000000000", file + ".bak.20260102-000000.000000000"}
+	for _, b := range backups {
+		if err := os.WriteFile(b, []byte(`{"telegram":{"bot_token":"secret"}}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := removeManagedFile(file, file, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("expected managed file removed")
+	}
+	leftover, err := filepath.Glob(file + ".bak.*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftover) != 0 {
+		t.Fatalf("expected backups removed, found: %v", leftover)
+	}
+}
+
 func TestErrorCooldownHelpers(t *testing.T) {
 	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
 	state := config.State{}

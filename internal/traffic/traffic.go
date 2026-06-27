@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 	"time"
 
@@ -387,10 +386,6 @@ func findUsage(data vnstatJSON, iface string, period string, start time.Time, no
 	return 0, 0, fmt.Errorf("interface %q not found in vnstat output", iface)
 }
 
-func findMonth(data vnstatJSON, iface string, period string) (uint64, uint64, error) {
-	return findUsage(data, iface, period, time.Time{}, time.Time{}, 1)
-}
-
 func sumDays(days []vnstatPeriod, start time.Time, now time.Time) (uint64, uint64, error) {
 	if len(days) == 0 {
 		return 0, 0, fmt.Errorf("vnStat daily data is empty; custom billing period cannot be calculated")
@@ -420,14 +415,33 @@ func DecideWithState(cfg config.Config, usage Usage, state config.State) Decisio
 	return decideAt(cfg, usage.Percent, state.Level)
 }
 
+func levelRank(level string) int {
+	switch level {
+	case LevelHard:
+		return 3
+	case LevelSoft:
+		return 2
+	case LevelWarn:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// decideAt applies threshold hysteresis. A clear threshold holds the decision at
+// a level while usage is descending, as long as the current level is at or above
+// that level. Using "at or above" (rather than "exactly at") means a drop from
+// hard_limit passes through soft_limit's clear band instead of jumping straight
+// to warn and prematurely removing the limit.
 func decideAt(cfg config.Config, percent float64, currentLevel string) Decision {
-	if percent >= cfg.Thresholds.HardPercent || (currentLevel == LevelHard && percent >= cfg.Thresholds.HardClearPercent) {
+	rank := levelRank(currentLevel)
+	if percent >= cfg.Thresholds.HardPercent || (rank >= levelRank(LevelHard) && percent >= cfg.Thresholds.HardClearPercent) {
 		return Decision{Level: LevelHard, LimitRate: cfg.Limits.HardRate}
 	}
-	if percent >= cfg.Thresholds.SoftPercent || (currentLevel == LevelSoft && percent >= cfg.Thresholds.SoftClearPercent) {
+	if percent >= cfg.Thresholds.SoftPercent || (rank >= levelRank(LevelSoft) && percent >= cfg.Thresholds.SoftClearPercent) {
 		return Decision{Level: LevelSoft, LimitRate: cfg.Limits.SoftRate}
 	}
-	if percent >= cfg.Thresholds.WarnPercent || (currentLevel == LevelWarn && percent >= cfg.Thresholds.WarnClearPercent) {
+	if percent >= cfg.Thresholds.WarnPercent || (rank >= levelRank(LevelWarn) && percent >= cfg.Thresholds.WarnClearPercent) {
 		return Decision{Level: LevelWarn}
 	}
 	return Decision{Level: LevelNormal}
@@ -495,37 +509,15 @@ func SplitRate(rate string, parts int) (string, error) {
 	if parts < 1 {
 		parts = 1
 	}
-	trimmed := strings.TrimSpace(strings.ToLower(rate))
-	if trimmed == "" {
-		return "", fmt.Errorf("rate is required")
+	total, err := config.ParseRate(rate)
+	if err != nil {
+		return "", err
 	}
-	units := []struct {
-		suffix string
-		mult   float64
-	}{
-		{"gbit", 1000 * 1000 * 1000},
-		{"mbit", 1000 * 1000},
-		{"kbit", 1000},
-		{"bit", 1},
+	bitsPerSecond := total / float64(parts)
+	if bitsPerSecond < 1 {
+		bitsPerSecond = 1
 	}
-	for _, unit := range units {
-		if strings.HasSuffix(trimmed, unit.suffix) {
-			number := strings.TrimSpace(strings.TrimSuffix(trimmed, unit.suffix))
-			value, err := strconv.ParseFloat(number, 64)
-			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
-				return "", fmt.Errorf("invalid rate %q", rate)
-			}
-			bitsPerSecond := value * unit.mult / float64(parts)
-			if math.IsNaN(bitsPerSecond) || math.IsInf(bitsPerSecond, 0) || bitsPerSecond > float64(^uint64(0)) {
-				return "", fmt.Errorf("rate %q is too large", rate)
-			}
-			if bitsPerSecond < 1 {
-				bitsPerSecond = 1
-			}
-			return fmt.Sprintf("%dbit", uint64(math.Ceil(bitsPerSecond))), nil
-		}
-	}
-	return "", fmt.Errorf("cannot split unsupported rate %q; use bit/kbit/mbit/gbit", rate)
+	return fmt.Sprintf("%dbit", uint64(math.Ceil(bitsPerSecond))), nil
 }
 
 func RemoveLimit(iface string) error {

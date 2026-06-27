@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -59,7 +60,9 @@ func sendTelegram(cfg config.Telegram, text string) error {
 	if err != nil {
 		return err
 	}
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", cfg.BotToken)
+	// PathEscape the token so a malformed token (e.g. one containing "/" or "..")
+	// cannot alter the request path; a well-formed Telegram token is unaffected.
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", url.PathEscape(cfg.BotToken))
 	client := http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(body))
 	if err != nil {

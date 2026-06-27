@@ -128,6 +128,18 @@ func removeManagedFile(path string, defaultPath string, allowCustom bool) (bool,
 	if err := os.Remove(cleanPath); err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
+	// Remove timestamped backups alongside the file. Config backups can contain
+	// the Telegram bot token, so leaving them behind after uninstall would leak
+	// the secret.
+	backups, err := filepath.Glob(cleanPath + ".bak.*")
+	if err != nil {
+		return false, err
+	}
+	for _, backup := range backups {
+		if err := os.Remove(backup); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+	}
 	if cleanPath == cleanDefault {
 		if err := os.Remove(filepath.Dir(cleanPath)); err != nil && !os.IsNotExist(err) && !strings.Contains(err.Error(), "directory not empty") {
 			return false, err

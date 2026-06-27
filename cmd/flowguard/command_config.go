@@ -88,9 +88,15 @@ func cmdModify(args []string) error {
 		cfg.PeriodDay = *periodDay
 	}
 	if *softRate != "" {
+		if _, err := config.ParseRate(*softRate); err != nil {
+			return fmt.Errorf("invalid --soft-rate %q: %w", *softRate, err)
+		}
 		cfg.Limits.SoftRate = *softRate
 	}
 	if *hardRate != "" {
+		if _, err := config.ParseRate(*hardRate); err != nil {
+			return fmt.Errorf("invalid --hard-rate %q: %w", *hardRate, err)
+		}
 		cfg.Limits.HardRate = *hardRate
 	}
 	visited := visitedFlags(fs)
@@ -179,7 +185,6 @@ func cmdModify(args []string) error {
 			}
 		}
 	}
-	_ = *statePath
 	if resetRecentMessage != "" {
 		fmt.Println(resetRecentMessage)
 	}

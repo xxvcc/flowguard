@@ -1,9 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 - 2026-06-27
 
 - Make `SECURITY.md` bilingual in Chinese and English.
 - Change the project license from MIT to GPL-3.0 and add attribution notice for Longlan.
+- Fix upgrade compatibility: derive missing clear thresholds from each trigger so configs with low custom thresholds load instead of failing validation and crash-looping the service.
+- Validate limit rates and heal legacy or unparseable rates to defaults on load, preventing crash-loops; reject invalid `--soft-rate`/`--hard-rate` input at install and modify time.
+- Cascade limit-threshold hysteresis on descent so dropping from the hard limit passes through the soft band instead of removing the limit prematurely.
+- Remove Telegram-token-bearing config backups during uninstall.
+- Escape the Telegram bot token when building the API URL.
+- Harden the install self-copy with the same symlink and safe-directory checks as the built-in upgrade.
+- Internal cleanup: share rate parsing between config and traffic, remove dead code, and add regression tests.
 
 ## v0.1.17 - 2026-06-21
 

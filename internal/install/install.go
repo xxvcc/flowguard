@@ -527,7 +527,7 @@ func isVnStatWarmupError(err error) bool {
 		return false
 	}
 	message := err.Error()
-	return strings.Contains(message, "monthly data") && strings.Contains(message, "is missing") || strings.Contains(message, "daily data is empty")
+	return (strings.Contains(message, "monthly data") && strings.Contains(message, "is missing")) || strings.Contains(message, "daily data is empty")
 }
 
 func firstNonEmpty(values ...string) string {
@@ -554,6 +554,9 @@ func installBinary(installDir string) (string, error) {
 	if err := os.MkdirAll(installDir, 0755); err != nil {
 		return "", err
 	}
+	if err := ensureSafeInstallDir(installDir); err != nil {
+		return "", err
+	}
 	tmp, err := os.CreateTemp(installDir, "flowguard.tmp.")
 	if err != nil {
 		return "", err
@@ -576,12 +579,49 @@ func installBinary(installDir string) (string, error) {
 		return "", err
 	}
 	installPath := filepath.Join(installDir, "flowguard")
+	if err := ensureRegularFileIfExists(installPath); err != nil {
+		return "", err
+	}
 	if err := os.Rename(tmpPath, installPath); err != nil {
 		return "", err
 	}
 	_ = syncDir(installDir)
 	fmt.Printf("Installed binary: %s\n", installPath)
 	return installPath, nil
+}
+
+func ensureSafeInstallDir(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("install directory %s must not be a symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("install directory %s is not a directory", path)
+	}
+	if info.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("install directory %s must not be group/world writable", path)
+	}
+	return nil
+}
+
+func ensureRegularFileIfExists(path string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	return nil
 }
 
 func syncDir(path string) error {

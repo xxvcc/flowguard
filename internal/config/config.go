@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -141,11 +142,17 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
-	applyMissingThresholdDefaults(data, &cfg)
 	cfg.Normalize()
+	applyMissingThresholdDefaults(data, &cfg)
 	return cfg, cfg.Validate()
 }
 
+// applyMissingThresholdDefaults fills in clear thresholds that were absent from
+// the on-disk config (older versions written before hysteresis existed). The
+// injected value is derived from each trigger threshold rather than a fixed
+// constant, so a config with custom low triggers (e.g. warn=50) does not get a
+// default clear (65) that exceeds its trigger and fails Validate. Callers must
+// run Normalize first so the trigger thresholds are populated.
 func applyMissingThresholdDefaults(data []byte, cfg *Config) {
 	var raw struct {
 		Thresholds map[string]json.RawMessage `json:"thresholds"`
@@ -154,21 +161,35 @@ func applyMissingThresholdDefaults(data []byte, cfg *Config) {
 		return
 	}
 	defaults := DefaultConfig().Thresholds
-	if raw.Thresholds == nil {
-		cfg.Thresholds.WarnClearPercent = defaults.WarnClearPercent
-		cfg.Thresholds.SoftClearPercent = defaults.SoftClearPercent
-		cfg.Thresholds.HardClearPercent = defaults.HardClearPercent
-		return
+	present := func(key string) bool {
+		if raw.Thresholds == nil {
+			return false
+		}
+		_, ok := raw.Thresholds[key]
+		return ok
 	}
-	if _, ok := raw.Thresholds["warn_clear_percent"]; !ok {
-		cfg.Thresholds.WarnClearPercent = defaults.WarnClearPercent
+	if !present("warn_clear_percent") {
+		cfg.Thresholds.WarnClearPercent = clearFromTrigger(cfg.Thresholds.WarnPercent, defaults.WarnPercent-defaults.WarnClearPercent)
 	}
-	if _, ok := raw.Thresholds["soft_clear_percent"]; !ok {
-		cfg.Thresholds.SoftClearPercent = defaults.SoftClearPercent
+	if !present("soft_clear_percent") {
+		cfg.Thresholds.SoftClearPercent = clearFromTrigger(cfg.Thresholds.SoftPercent, defaults.SoftPercent-defaults.SoftClearPercent)
 	}
-	if _, ok := raw.Thresholds["hard_clear_percent"]; !ok {
-		cfg.Thresholds.HardClearPercent = defaults.HardClearPercent
+	if !present("hard_clear_percent") {
+		cfg.Thresholds.HardClearPercent = clearFromTrigger(cfg.Thresholds.HardPercent, defaults.HardPercent-defaults.HardClearPercent)
 	}
+}
+
+// clearFromTrigger returns a clear threshold gap below the trigger, clamped to
+// [0, trigger] so it always satisfies Validate's clear <= trigger invariant.
+func clearFromTrigger(trigger float64, gap float64) float64 {
+	value := trigger - gap
+	if value < 0 {
+		value = 0
+	}
+	if value > trigger {
+		value = trigger
+	}
+	return value
 }
 
 func (c *Config) Normalize() {
@@ -203,10 +224,15 @@ func (c *Config) Normalize() {
 	if c.Thresholds.HardPercent == 0 {
 		c.Thresholds.HardPercent = 95
 	}
-	if c.Limits.SoftRate == "" {
+	// Coerce a missing or unparseable rate back to the default, mirroring how
+	// PeriodDay/Language/thresholds are healed above. This keeps a legacy or
+	// hand-edited config loadable (the service falls back to a safe limiting
+	// rate) instead of failing Validate and crash-looping; fresh CLI input is
+	// still rejected before reaching here (install/modify validate raw input).
+	if !rateParses(c.Limits.SoftRate) {
 		c.Limits.SoftRate = "10mbit"
 	}
-	if c.Limits.HardRate == "" {
+	if !rateParses(c.Limits.HardRate) {
 		c.Limits.HardRate = "1mbit"
 	}
 }
@@ -258,8 +284,11 @@ func (c Config) Validate() error {
 	if !validClearPercent(c.Thresholds.WarnClearPercent) || !validClearPercent(c.Thresholds.SoftClearPercent) || !validClearPercent(c.Thresholds.HardClearPercent) || c.Thresholds.WarnClearPercent > c.Thresholds.WarnPercent || c.Thresholds.SoftClearPercent > c.Thresholds.SoftPercent || c.Thresholds.HardClearPercent > c.Thresholds.HardPercent {
 		return errors.New("clear thresholds must be finite percentages between 0 and their matching trigger thresholds")
 	}
-	if c.Limits.SoftRate == "" || c.Limits.HardRate == "" {
-		return errors.New("soft_rate and hard_rate are required")
+	if _, err := ParseRate(c.Limits.SoftRate); err != nil {
+		return fmt.Errorf("invalid soft_rate %q: %w", c.Limits.SoftRate, err)
+	}
+	if _, err := ParseRate(c.Limits.HardRate); err != nil {
+		return fmt.Errorf("invalid hard_rate %q: %w", c.Limits.HardRate, err)
 	}
 	if c.Telegram.Enabled && (c.Telegram.BotToken == "" || c.Telegram.ChatID == "") {
 		return errors.New("telegram bot_token and chat_id are required when telegram is enabled")
@@ -273,6 +302,46 @@ func validPercent(value float64) bool {
 
 func validClearPercent(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 100
+}
+
+func rateParses(rate string) bool {
+	_, err := ParseRate(rate)
+	return err == nil
+}
+
+// ParseRate parses a tc-style rate string (e.g. "10mbit") into bits per second.
+// It rejects empty, non-positive, non-finite, unsupported-suffix, and overflowing
+// values so that an invalid limit rate is caught when the config is saved instead
+// of silently failing later when FlowGuard tries to apply the limit.
+func ParseRate(rate string) (float64, error) {
+	trimmed := strings.TrimSpace(strings.ToLower(rate))
+	if trimmed == "" {
+		return 0, errors.New("rate is required")
+	}
+	units := []struct {
+		suffix string
+		mult   float64
+	}{
+		{"gbit", 1000 * 1000 * 1000},
+		{"mbit", 1000 * 1000},
+		{"kbit", 1000},
+		{"bit", 1},
+	}
+	for _, unit := range units {
+		if strings.HasSuffix(trimmed, unit.suffix) {
+			number := strings.TrimSpace(strings.TrimSuffix(trimmed, unit.suffix))
+			value, err := strconv.ParseFloat(number, 64)
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+				return 0, fmt.Errorf("invalid rate %q", rate)
+			}
+			total := value * unit.mult
+			if math.IsNaN(total) || math.IsInf(total, 0) || total > float64(^uint64(0)) {
+				return 0, fmt.Errorf("rate %q is too large", rate)
+			}
+			return total, nil
+		}
+	}
+	return 0, fmt.Errorf("unsupported rate %q; use bit/kbit/mbit/gbit", rate)
 }
 
 func Save(path string, cfg Config) error {

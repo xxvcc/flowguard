@@ -194,6 +194,21 @@ func TestDecideWithStateHysteresis(t *testing.T) {
 	}
 }
 
+func TestDecideCascadesDownThroughSoftFromHard(t *testing.T) {
+	cfg := config.DefaultConfig() // warn70/soft85/hard95, clears 65/80/90
+	// Descending from hard_limit at 82% (between soft clear 80 and soft trigger
+	// 85) should hold at soft_limit, not jump straight to warn and drop the limit.
+	got := DecideWithState(cfg, Usage{Percent: 82}, config.State{Level: LevelHard})
+	if got.Level != LevelSoft || got.LimitRate != cfg.Limits.SoftRate {
+		t.Fatalf("hard->soft cascade at 82%%=%+v, want soft with rate", got)
+	}
+	// Below soft clear it continues down to warn.
+	got = DecideWithState(cfg, Usage{Percent: 79}, config.State{Level: LevelHard})
+	if got.Level != LevelWarn || got.LimitRate != "" {
+		t.Fatalf("hard->warn at 79%%=%+v, want warn no limit", got)
+	}
+}
+
 func TestDetectVnStatReset(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.BaselineRXBytes = 10
@@ -238,7 +253,7 @@ printf '%s\n' '{"interfaces":[{"name":"eth0","traffic":{"month":[{"date":{"year"
 
 func TestFindMonthRejectsMissingMonth(t *testing.T) {
 	data := vnstatJSON{Interfaces: []vnstatInterface{{Name: "eth0", Traffic: vnstatTraffic{Total: vnstatTotal{RX: 123, TX: 456}}}}}
-	_, _, err := findMonth(data, "eth0", "2026-06")
+	_, _, err := findUsage(data, "eth0", "2026-06", time.Time{}, time.Time{}, 1)
 	if err == nil {
 		t.Fatal("expected missing month error")
 	}
@@ -249,12 +264,12 @@ func TestFindMonthUsesMonthWhenAvailable(t *testing.T) {
 	period.Date.Year = 2026
 	period.Date.Month = 6
 	data := vnstatJSON{Interfaces: []vnstatInterface{{Name: "eth0", Traffic: vnstatTraffic{Total: vnstatTotal{RX: 123, TX: 456}, Months: []vnstatPeriod{period}}}}}
-	rx, tx, err := findMonth(data, "eth0", "2026-06")
+	rx, tx, err := findUsage(data, "eth0", "2026-06", time.Time{}, time.Time{}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rx != 1 || tx != 2 {
-		t.Fatalf("findMonth month rx=%d tx=%d", rx, tx)
+		t.Fatalf("findUsage month rx=%d tx=%d", rx, tx)
 	}
 }
 

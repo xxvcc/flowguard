@@ -116,6 +116,80 @@ func TestLoadDefaultsMissingClearThresholds(t *testing.T) {
 	}
 }
 
+func TestLoadDerivesClearThresholdsForLowCustomTriggers(t *testing.T) {
+	// A config written before clear thresholds existed, with custom triggers
+	// below the old fixed clear defaults (65/80/90), must still load instead of
+	// failing validation and crash-looping the service.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := `{
+		"interface":"eth0",
+		"interfaces":["eth0"],
+		"allowance_bytes":1000,
+		"thresholds":{"warn_percent":50,"soft_percent":60,"hard_percent":70},
+		"limits":{"soft_rate":"10mbit","hard_rate":"1mbit"}
+	}`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("low custom triggers should still load: %v", err)
+	}
+	th := cfg.Thresholds
+	if th.WarnClearPercent > th.WarnPercent || th.SoftClearPercent > th.SoftPercent || th.HardClearPercent > th.HardPercent {
+		t.Fatalf("derived clear thresholds exceed triggers: %+v", th)
+	}
+	if th.WarnClearPercent != 45 || th.SoftClearPercent != 55 || th.HardClearPercent != 65 {
+		t.Fatalf("expected trigger-5 clears, got %+v", th)
+	}
+}
+
+func TestLoadHealsUnparseableRateInsteadOfFailing(t *testing.T) {
+	// A legacy or hand-edited config with a non-empty but unparseable rate must
+	// still load (coerced to the default) so the service does not crash-loop on
+	// startup. Fresh CLI input is validated separately.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := `{
+		"interface":"eth0",
+		"interfaces":["eth0"],
+		"allowance_bytes":1000,
+		"thresholds":{"warn_percent":70,"soft_percent":85,"hard_percent":95},
+		"limits":{"soft_rate":"0mbit","hard_rate":"10mb"}
+	}`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("legacy bad-rate config should still load: %v", err)
+	}
+	if cfg.Limits.SoftRate != "10mbit" || cfg.Limits.HardRate != "1mbit" {
+		t.Fatalf("bad rates not healed to defaults: %+v", cfg.Limits)
+	}
+}
+
+func TestValidateRejectsInvalidRate(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Interface = "eth0"
+	cfg.Interfaces = []string{"eth0"}
+	cfg.AllowanceBytes = 1000
+	cfg.Limits.SoftRate = "garbage"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid soft_rate to be rejected at validation time")
+	}
+	cfg.Limits.SoftRate = "10mbit"
+	cfg.Limits.HardRate = "10" // no unit suffix
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected unit-less hard_rate to be rejected")
+	}
+	cfg.Limits.HardRate = "1mbit"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid rates should pass: %v", err)
+	}
+}
+
 func TestValidateLanguage(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Interface = "eth0"
